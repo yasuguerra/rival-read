@@ -28,7 +28,7 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
   const [attempts, setAttempts] = useState(0);
   const [startTime, setStartTime] = useState(0);
   const [showTime, setShowTime] = useState(3000 - (difficulty * 200));
-  const [sequenceLength, setSequenceLength] = useState(3 + difficulty);
+  const [sequenceLength, setSequenceLength] = useState(Math.min(2 + difficulty - 1, 8)); // Start at 2 for level 1
 
   const generateSequence = useCallback(() => {
     const shuffled = [...WORD_BANK].sort(() => Math.random() - 0.5);
@@ -72,10 +72,10 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
     
     if (isCorrect) {
       setScore(score + 1);
-      setSequenceLength(prev => Math.min(prev + 1, 8));
+  setSequenceLength(prev => Math.min(prev + 1, 8));
       setShowTime(prev => Math.max(prev - 100, 1500));
     } else {
-      setSequenceLength(prev => Math.max(prev - 1, 3));
+  setSequenceLength(prev => Math.max(prev - 1, 2));
       setShowTime(prev => Math.min(prev + 200, 4000));
     }
     

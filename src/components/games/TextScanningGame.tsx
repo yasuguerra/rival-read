@@ -22,7 +22,7 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
   const [score, setScore] = useState(0);
   const [errors, setErrors] = useState(0);
   const [startTime, setStartTime] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(90);
+  const [timeLeft, setTimeLeft] = useState(90); // Single session timer
   const [currentRound, setCurrentRound] = useState(1);
 
   const sampleTexts = [
@@ -51,14 +51,14 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
     
     setTargetWords(selectedWords);
     setTextContent(text);
-    setFoundWords(new Set());
-    setTimeLeft(90 - currentRound * 5); // Decrease time each round
+  setFoundWords(new Set());
+  // Keep global timer independent of rounds
   }, [difficulty, currentRound]);
 
   const startGame = useCallback(() => {
     setScore(0);
     setErrors(0);
-    setCurrentRound(1);
+  setCurrentRound(1);
     setStartTime(Date.now());
     setGamePhase('playing');
     generateRound();
@@ -105,14 +105,19 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
 
   useEffect(() => {
     if (gamePhase === 'playing' && timeLeft > 0) {
-      const timer = setTimeout(() => {
-        setTimeLeft(prev => prev - 1);
+      const interval = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            setGamePhase('feedback');
+            return 0;
+          }
+          return prev - 1;
+        });
       }, 1000);
-      return () => clearTimeout(timer);
-    } else if (timeLeft === 0) {
-      setGamePhase('feedback');
+      return () => clearInterval(interval);
     }
-  }, [gamePhase, timeLeft, score, errors, startTime, onComplete]);
+  }, [gamePhase, timeLeft]);
 
   const finalizeGame = async () => {
     const duration = (Date.now() - startTime) / 1000;
@@ -172,7 +177,9 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
           </p>
           {onBack && (
             <div className="absolute left-4 top-4">
-              <Button variant="outline" size="sm" onClick={onBack}>Volver</Button>
+              <Button variant="outline" size="icon" onClick={onBack} aria-label="Volver">
+                ←
+              </Button>
             </div>
           )}
           {gamePhase === 'playing' && (

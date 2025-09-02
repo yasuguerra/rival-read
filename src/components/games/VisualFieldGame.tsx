@@ -339,7 +339,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                                     ? 'bg-warning text-black border-warning font-bold' 
                                     : showingCharacters
                                       ? 'bg-muted text-muted-foreground border-border'
-                                      : 'bg-muted/50 text-transparent border-border'
+                                      : 'bg-muted/40 text-muted-foreground/40 border-border'
                                 }
                               `}
                             >

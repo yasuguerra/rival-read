@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { recordGameRun } from '@/services/gameRuns';
 import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import { getOrGeneratePassage } from '@/services/aiContent';
 import { ArrowLeft } from 'lucide-react';
 
 interface ReadingAcceleratorGameProps {
@@ -63,10 +64,26 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
   const words = currentText.split(/\s+/).filter(word => word.length > 0);
   const highlightRange = 3 + difficulty; // Number of words to highlight
 
+  const topics = ['neuroplasticidad', 'atención selectiva', 'memoria de trabajo', 'lectura eficiente', 'aprendizaje'];
+  const [currentTopicIdx, setCurrentTopicIdx] = useState(0);
+
+  const loadDynamicContent = useCallback(async (level: number) => {
+    try {
+      const topic = topics[currentTopicIdx % topics.length];
+      const generated = await getOrGeneratePassage(topic, level);
+      setCurrentText(generated.passage);
+      setQuestions(generated.questions.map(q => ({ question: q.question, options: q.options, correct: q.correctIndex })));
+      setCurrentTopicIdx(i => i + 1);
+    } catch (e) {
+      console.warn('Falling back to static sample text:', e);
+      const textData = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+      setCurrentText(textData.content);
+      setQuestions(textData.questions);
+    }
+  }, [currentTopicIdx]);
+
   const startGame = useCallback(() => {
-    const textData = sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
-    setCurrentText(textData.content);
-    setQuestions(textData.questions);
+    loadDynamicContent(difficulty);
     setUserAnswers([]);
     setCurrentQuestion(0);
     setScore(0);
@@ -75,7 +92,7 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
     setStartTime(Date.now());
     setGamePhase('reading');
     trackEvent(user?.id, 'game_start', { game: 'reading_accelerator', wpm: 180 + difficulty * 40, level: difficulty });
-  }, [difficulty, user?.id]);
+  }, [difficulty, user?.id, loadDynamicContent]);
 
   const calculateReadingProgress = () => {
     return (currentPosition / words.length) * 100;
@@ -112,7 +129,10 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
     }
     
     if (currentQuestion < questions.length - 1) {
-      setCurrentQuestion(prev => prev + 1);
+      // brief feedback flash before next question
+      setTimeout(() => {
+        setCurrentQuestion(prev => prev + 1);
+      }, 600);
     } else {
       // All questions answered
       const duration = (Date.now() - startTime) / 1000;
@@ -223,24 +243,32 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
 
           {gamePhase === 'questions' && currentQuestion < questions.length && (
             <div className="space-y-6">
-              <div className="text-center">
-                <h3 className="text-xl font-semibold mb-4">
+              <div className="text-center space-y-4">
+                <h3 className="text-xl font-semibold">
                   {questions[currentQuestion].question}
                 </h3>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {questions[currentQuestion].options.map((option, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className="h-auto p-4 text-left"
-                      onClick={() => handleAnswer(index)}
-                    >
-                      <span className="font-semibold mr-2">{String.fromCharCode(65 + index)})</span>
-                      {option}
-                    </Button>
-                  ))}
+                  {questions[currentQuestion].options.map((option, index) => {
+                    const answered = userAnswers.length === currentQuestion + 1; // user just answered
+                    const isCorrect = answered && questions[currentQuestion].correct === index;
+                    const isChosen = answered && userAnswers[currentQuestion] === index;
+                    return (
+                      <Button
+                        key={index}
+                        variant={isChosen ? (isCorrect ? 'default' : 'destructive') : 'outline'}
+                        className={`h-auto p-4 text-left transition-colors duration-300 ${isCorrect ? 'border-success bg-success/20' : ''}`}
+                        disabled={answered}
+                        onClick={() => handleAnswer(index)}
+                      >
+                        <span className="font-semibold mr-2">{String.fromCharCode(65 + index)})</span>
+                        {option}
+                      </Button>
+                    );
+                  })}
                 </div>
+                {userAnswers.length === currentQuestion + 1 && currentQuestion < questions.length - 1 && (
+                  <p className="text-sm text-muted-foreground animate-pulse">Preparando siguiente pregunta…</p>
+                )}
               </div>
             </div>
           )}

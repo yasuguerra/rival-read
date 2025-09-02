@@ -176,10 +176,10 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
         {/* Game Grid */}
         <div className="flex justify-center">
           <div 
-            className="grid gap-1 p-4 rounded-lg bg-muted/20"
+            className="grid gap-1 p-2 sm:p-4 rounded-lg bg-muted/20 w-full"
             style={{
-              gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-              maxWidth: '400px',
+              gridTemplateColumns: `repeat(${gridSize}, minmax(0,1fr))`,
+              maxWidth: 'min(90vw, 480px)',
               aspectRatio: '1'
             }}
           >
@@ -192,7 +192,7 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
                   key={index}
                   variant="outline"
                   className={`
-                    aspect-square text-sm font-bold transition-all duration-200
+                    aspect-square text-[clamp(0.6rem,2vw,0.9rem)] font-bold transition-all duration-200
                     ${isFound 
                       ? 'bg-success/30 border-success text-success-foreground' 
                       : isTarget

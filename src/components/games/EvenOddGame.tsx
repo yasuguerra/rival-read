@@ -22,6 +22,11 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
   const [gameStarted, setGameStarted] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
   const [numbersGrid, setNumbersGrid] = useState<number[][]>([]);
+  const computeGridSize = (lvl: number) => {
+    // Start at 5x5 then grow: 5,5,6,6,7,7,8,8,9,9 for levels 1..10
+    const sequence = [5,5,6,6,7,7,8,8,9,9];
+    return sequence[Math.min(lvl - 1, sequence.length - 1)];
+  };
   const [currentRule, setCurrentRule] = useState<'even' | 'odd'>('even');
   const [foundNumbers, setFoundNumbers] = useState<Set<string>>(new Set());
   const [score, setScore] = useState(0);
@@ -85,7 +90,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
   };
 
   const generateGrid = () => {
-    const gridSize = Math.min(6 + Math.floor(level / 2), 9); // 6x6 to 9x9
+    const gridSize = computeGridSize(level); // 5x5 upward progression
     const maxNumber = level < 3 ? 99 : level < 6 ? 999 : 9999;
     const grid: number[][] = [];
     
@@ -216,7 +221,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
             )}
             <div>
               <h1 className="text-2xl font-bold">Par/Impar</h1>
-              <p className="text-sm text-muted-foreground">Nivel {level} • Matriz {Math.min(6 + Math.floor(level / 2), 9)}×{Math.min(6 + Math.floor(level / 2), 9)}</p>
+              <p className="text-sm text-muted-foreground">Nivel {level} • Matriz {computeGridSize(level)}×{computeGridSize(level)}</p>
             </div>
           </div>
           
@@ -251,70 +256,44 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
                 </div>
               </div>
               <Progress value={(foundNumbers.size / targetCount) * 100} className="h-2" />
-            </CardContent>
-          </Card>
-        )}
-
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-          <CardContent className="p-6">
-            {!gameStarted ? (
-              <div className="text-center space-y-4">
-                <div>
-                  <h2 className="text-xl font-semibold mb-2">Encuentra todos los números pares o impares</h2>
-                  <p className="text-muted-foreground mb-4">
-                    Encuentra rápidamente todos los números que cumplan la regla.
-                    Mantén la mirada en el centro y percibe en bloques.
-                  </p>
-                  <div className="text-sm text-muted-foreground space-y-2 bg-muted/20 p-4 rounded-lg">
-                    <p><strong>Regla:</strong> Un número es par si termina en 0, 2, 4, 6 u 8</p>
-                    <p><strong>Ejemplo:</strong> 24 = par, 37 = impar</p>
+              <div className="relative mt-4">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-full bg-primary/70 animate-pulse shadow-glow-primary" />
                   </div>
-                </div>
-                <Button 
-                  onClick={startGame}
-                  className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Comenzar Juego
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div 
-                  className="grid gap-1"
-                  style={{ 
-                    gridTemplateColumns: `repeat(${numbersGrid[0]?.length || 6}, minmax(0, 1fr))`,
-                    maxWidth: '600px',
-                    margin: '0 auto'
-                  }}
-                >
-                  {numbersGrid.map((row, rowIndex) =>
-                    row.map((number, colIndex) => {
-                      const positionKey = `${rowIndex}-${colIndex}`;
-                      const isFound = foundNumbers.has(positionKey);
-                      const isCorrectType = isNumberMatchingRule(number);
-                      
-                      return (
-                        <Button
-                          key={positionKey}
-                          variant={isFound ? "default" : "outline"}
-                          className={`
-                            aspect-square font-mono transition-all duration-200 hover:scale-105
-                            min-h-[48px] min-w-[48px] touch-manipulation
-                            ${numbersGrid[0]?.length <= 6 ? 'text-base' : 'text-sm'}
-                            ${isFound 
-                              ? 'bg-success/20 border-success text-success' 
-                              : 'bg-card border-border hover:border-primary/50'
-                            }
-                          `}
-                          onClick={() => handleNumberClick(number, rowIndex, colIndex)}
-                          disabled={isFound || gameCompleted}
-                        >
-                          {number}
-                        </Button>
-                      );
-                    })
-                  )}
+                  <div 
+                    className="grid gap-1"
+                    style={{ 
+                      gridTemplateColumns: `repeat(${numbersGrid[0]?.length || 5}, minmax(0, 1fr))`,
+                      maxWidth: '600px',
+                      margin: '0 auto'
+                    }}
+                  >
+                    {numbersGrid.map((row, rowIndex) =>
+                      row.map((number, colIndex) => {
+                        const positionKey = `${rowIndex}-${colIndex}`;
+                        const isFound = foundNumbers.has(positionKey);
+                        return (
+                          <Button
+                            key={positionKey}
+                            variant={isFound ? "default" : "outline"}
+                            className={`
+                              aspect-square font-mono transition-all duration-200 hover:scale-105
+                              min-h-[48px] min-w-[48px] touch-manipulation
+                              ${numbersGrid[0]?.length <= 6 ? 'text-base' : 'text-sm'}
+                              ${isFound 
+                                ? 'bg-success/20 border-success text-success' 
+                                : 'bg-card border-border hover:border-primary/50'
+                              }
+                            `}
+                            onClick={() => handleNumberClick(number, rowIndex, colIndex)}
+                            disabled={isFound || gameCompleted}
+                          >
+                            {number}
+                          </Button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
                 {showLevelUp && (
                   <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
@@ -330,10 +309,9 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
                     Reiniciar
                   </Button>
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tips */}
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">

@@ -121,8 +121,9 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
       Array(gridSize).fill('')
     );
     
-    // Select words for this level
-    const selectedWords = wordsList.slice(0, numWords);
+  // Select words for this level (shuffle for randomness each level)
+  const shuffledWords = [...wordsList].sort(() => Math.random() - 0.5);
+  const selectedWords = shuffledWords.slice(0, numWords);
     const placedWords: string[] = [];
     
     const directions = [

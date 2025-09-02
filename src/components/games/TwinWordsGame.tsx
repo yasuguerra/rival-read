@@ -32,9 +32,46 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
   const wordsList = [
     "gato", "perro", "casa", "mesa", "libro", "agua", "fuego", "tierra",
     "cielo", "luna", "sol", "mar", "río", "monte", "valle", "flor",
-    "papel", "lápiz", "coche", "avión", "barco", "tren", "música", "baile",
-    "amor", "paz", "guerra", "tiempo", "espacio", "vida", "muerte", "salud"
+    "papel", "lapiz", "coche", "avion", "barco", "tren", "musica", "baile",
+    "amor", "paz", "guerra", "tiempo", "espacio", "vida", "muerte", "salud",
+    "canion", "nino", "anio", "senor", "accion", "vision"
   ];
+
+  // Normalize Spanish accents and ñ for comparison
+  const normalize = (w: string) => w
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/ñ/g, 'n');
+
+  // Simple similarity (Levenshtein distance up to 1 allowed)
+  const isNearMatch = (a: string, b: string) => {
+    const na = normalize(a);
+    const nb = normalize(b);
+    if (na === nb) return true;
+    // Allow single substitution/insertion/deletion
+    const lenA = na.length, lenB = nb.length;
+    if (Math.abs(lenA - lenB) > 1) return false;
+    let i=0,j=0,diff=0;
+    while (i < lenA && j < lenB) {
+      if (na[i] === nb[j]) { i++; j++; continue; }
+      diff++;
+      if (diff > 1) return false;
+      if (lenA > lenB) i++; else if (lenB > lenA) j++; else { i++; j++; }
+    }
+    if (i < lenA || j < lenB) diff++;
+    return diff <= 1;
+  };
+
+  // Mutate a word slightly (accent removal, swap, vowel change)
+  const mutateWord = (w: string) => {
+    const variants: string[] = [];
+    variants.push(w.replace(/a/g,'á').replace(/o/g,'ó')); // add accents
+    if (w.length > 3) variants.push(w.slice(0,-1)); // drop last letter
+    if (w.length > 4) variants.push(w.slice(0,2)+w[3]+w[2]+w.slice(4)); // swap middle
+    variants.push(w.replace(/n/g,'ñ'));
+    return variants.find(v => normalize(v) !== normalize(w)) || w;
+  };
 
   // Load saved level on component mount
   useEffect(() => {
@@ -97,12 +134,17 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     const shuffledWords = [...wordsList].sort(() => Math.random() - 0.5);
     const pairs: WordPair[] = [];
     
-    // Create target pairs (different words)
+    // Create target pairs (near but not identical / or different)
     for (let i = 0; i < targetPairs; i++) {
+      const base = shuffledWords[i];
+      const variant = mutateWord(base);
+      // Ensure variant is considered different visually but near-match logic treats them separately
+      const w1 = base;
+      const w2 = variant === base ? shuffledWords[i + targetPairs] : variant;
       pairs.push({
-        word1: shuffledWords[i * 2],
-        word2: shuffledWords[i * 2 + 1],
-        isTarget: true,
+        word1: w1,
+        word2: w2,
+        isTarget: !isNearMatch(w1, w2), // mark as target only if nearMatch returns false
         found: false
       });
     }
@@ -110,10 +152,12 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     // Create non-target pairs (identical words)
     const remainingPairs = totalPairs - targetPairs;
     for (let i = 0; i < remainingPairs; i++) {
-      const word = shuffledWords[targetPairs * 2 + i];
+      const word = shuffledWords[targetPairs + i];
+      const nearVariant = mutateWord(word);
+      // Non-target: treat near variants as identical for user (force them equal)
       pairs.push({
         word1: word,
-        word2: word,
+        word2: nearVariant,
         isTarget: false,
         found: false
       });
@@ -131,7 +175,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     
     const pair = wordPairs[pairIndex];
     
-    if (pair.isTarget) {
+  if (pair.isTarget) {
       // Correct - this is a different pair
       setWordPairs(prev => prev.map((p, i) => 
         i === pairIndex ? { ...p, found: true } : p
@@ -151,7 +195,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
         }
         return newRemaining;
       });
-    } else {
+  } else {
       // Wrong - this is an identical pair
       setErrors(prev => prev + 1);
       setScore(prev => Math.max(0, prev - 5));

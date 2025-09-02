@@ -25,7 +25,7 @@ interface Cell {
 export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameProps) {
   const { user } = useAuth();
   const [level, setLevel] = useState(difficulty);
-  const [gridSize, setGridSize] = useState(5);
+  const [gridSize, setGridSize] = useState(4); // Start smaller (4x4) for early levels
   const [cells, setCells] = useState<Cell[]>([]);
   const [currentTarget, setCurrentTarget] = useState(1);
   const [gameStarted, setGameStarted] = useState(false);
@@ -62,6 +62,15 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     }
   }, [gameStarted, gameCompleted]);
 
+  // Map level to grid size with gentler early ramp (levels 1-2:4, 3-4:5, 5-6:6, 7-8:7, 9-10:8)
+  const computeGridSize = (lvl: number) => {
+    if (lvl < 3) return 4;
+    if (lvl < 5) return 5;
+    if (lvl < 7) return 6;
+    if (lvl < 9) return 7;
+    return 8;
+  };
+
   const loadSavedLevel = async () => {
     if (!user) return;
     
@@ -76,8 +85,10 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
       if (data?.last_level) {
         const savedLevel = data.last_level;
         setLevel(savedLevel);
-        const newGridSize = Math.min(4 + savedLevel, 8); // 5x5 to 8x8
-        setGridSize(newGridSize);
+        setGridSize(computeGridSize(savedLevel));
+      } else {
+        // Ensure grid size matches initial level
+        setGridSize(computeGridSize(level));
       }
     } catch (error) {
       console.error('Error loading saved level:', error);
@@ -158,10 +169,9 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     
     // Level up if completed quickly with 100% accuracy
     if (boardTime < timeThreshold && errors === 0) {
-      const newLevel = Math.min(level + 1, 10); // Cap at level 10
-      setLevel(newLevel);
-      const newGridSize = Math.min(4 + newLevel, 8); // 5x5 to 8x8
-      setGridSize(newGridSize);
+  const newLevel = Math.min(level + 1, 10); // Cap at level 10
+  setLevel(newLevel);
+  setGridSize(computeGridSize(newLevel));
       saveLevelProgress(newLevel);
       trackEvent(user?.id, 'level_up', { game: 'schulte', newLevel });
     }
@@ -338,7 +348,7 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
                         ${gridSize <= 5 ? 'text-xl' : gridSize <= 6 ? 'text-lg' : 'text-base'}
                         ${cell.found 
                           ? 'bg-success/20 border-success text-success' 
-                          : cell.number === currentTarget
+                          : (level < 4 && cell.number === currentTarget)
                             ? 'bg-primary/20 border-primary text-primary shadow-glow-primary'
                             : 'bg-card border-border hover:border-primary/50'
                         }

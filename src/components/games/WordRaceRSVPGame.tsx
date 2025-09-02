@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { trackEvent } from '@/services/analytics';
+import { recordGameRun } from '@/services/gameRuns';
+import { computeGameXp, awardXp } from '@/services/xp';
 
 interface WordRaceRSVPGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -18,7 +23,8 @@ const WORD_BANK = [
 ];
 
 export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRaceRSVPGameProps) {
-  const [gamePhase, setGamePhase] = useState<'ready' | 'showing' | 'answering' | 'feedback'>('ready');
+  const { user } = useAuth();
+  const [gamePhase, setGamePhase] = useState<'ready' | 'showing' | 'answering' | 'feedback' | 'summary'>('ready');
   const [currentWords, setCurrentWords] = useState<string[]>([]);
   const [targetWord, setTargetWord] = useState('');
   const [options, setOptions] = useState<string[]>([]);
@@ -27,8 +33,12 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [startTime, setStartTime] = useState(0);
-  const [wordDisplayTime, setWordDisplayTime] = useState(800 - (difficulty * 100));
-  const [sequenceLength, setSequenceLength] = useState(5 + difficulty);
+  const [baseDisplayTime, setBaseDisplayTime] = useState(900 - (difficulty * 80)); // baseline adaptive
+  const [wordDisplayTime, setWordDisplayTime] = useState(900 - (difficulty * 80));
+  const [sequenceLength, setSequenceLength] = useState(4 + difficulty); // start slightly shorter
+  const [streak, setStreak] = useState(0);
+  const [sequenceHistory, setSequenceHistory] = useState<Array<{words: string[]; target: string; correct: boolean}>>([]);
+  const maxAttempts = 10;
 
   const generateSequence = useCallback(() => {
     const shuffled = [...WORD_BANK].sort(() => Math.random() - 0.5);
@@ -44,13 +54,15 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     setOptions(allOptions);
     setCurrentWordIndex(0);
     setSelectedAnswer('');
-  }, [sequenceLength]);
+  // Telemetry (reuse game_start semantics for sequence instrumentation)
+  trackEvent(user?.id, 'game_start', { game: 'word_race_rsvp', sequenceLength, displayMs: wordDisplayTime });
+  }, [sequenceLength, user?.id, wordDisplayTime]);
 
   const startSequence = useCallback(() => {
+    if (attempts === 0) setStartTime(Date.now());
     generateSequence();
     setGamePhase('showing');
-    setStartTime(Date.now());
-  }, [generateSequence]);
+  }, [generateSequence, attempts]);
 
   const showNextWord = useCallback(() => {
     if (currentWordIndex < currentWords.length - 1) {
@@ -60,44 +72,63 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     } else {
       setTimeout(() => {
         setGamePhase('answering');
+  trackEvent(user?.id, 'level_up', { game: 'word_race_rsvp', sequenceLength, displayMs: wordDisplayTime });
       }, wordDisplayTime);
     }
-  }, [currentWordIndex, currentWords.length, wordDisplayTime]);
+  }, [currentWordIndex, currentWords.length, wordDisplayTime, user?.id, sequenceLength]);
 
   const checkAnswer = useCallback((answer: string) => {
+    if (gamePhase !== 'answering') return;
     setSelectedAnswer(answer);
     const isCorrect = answer === targetWord;
     const newAttempts = attempts + 1;
-    
     setAttempts(newAttempts);
-    
+    setSequenceHistory(prev => [...prev, { words: currentWords, target: targetWord, correct: isCorrect }]);
+  trackEvent(user?.id, isCorrect ? 'level_up' : 'xp_gain', { game: 'word_race_rsvp', correct: isCorrect, sequenceLength, displayMs: wordDisplayTime });
+
     if (isCorrect) {
-      setScore(score + 1);
-      setWordDisplayTime(prev => Math.max(prev - 20, 200));
-      setSequenceLength(prev => Math.min(prev + 1, 10));
+      setScore(prev => prev + 1);
+      setStreak(prev => prev + 1);
+      // Adaptive: gently speed up & increase length every 2 streak
+      if ((streak + 1) % 2 === 0) {
+        setWordDisplayTime(prev => Math.max(prev - 40, 180));
+        setSequenceLength(prev => Math.min(prev + 1, 12));
+      }
     } else {
-      setWordDisplayTime(prev => Math.min(prev + 50, 1200));
+      setStreak(0);
+      setWordDisplayTime(prev => Math.min(prev + 60, 1400));
       setSequenceLength(prev => Math.max(prev - 1, 3));
     }
-    
+
     setGamePhase('feedback');
-    
+
     setTimeout(() => {
-      if (newAttempts >= 10) {
-        const accuracy = (score / newAttempts) * 100;
+      if (newAttempts >= maxAttempts) {
+        const accuracy = newAttempts > 0 ? ( (score + (isCorrect ? 1 : 0)) / newAttempts) * 100 : 0;
         const duration = (Date.now() - startTime) / 1000;
-        onComplete(score, accuracy, duration);
+        const xp = computeGameXp('word_race_rsvp' as any, { score: score + (isCorrect ? 1 : 0), accuracy, level: difficulty });
+        if (user) {
+          recordGameRun({ userId: user.id, gameCode: 'word_race_rsvp', level: difficulty, score: score + (isCorrect ? 1 : 0), accuracy, durationSec: duration, params: { attempts: newAttempts } });
+          awardXp(user.id, xp, 'game', { game: 'word_race_rsvp' });
+        }
+        trackEvent(user?.id, 'game_end', { game: 'word_race_rsvp', score: score + (isCorrect ? 1 : 0), accuracy, attempts: newAttempts });
+        setGamePhase('summary');
+        onComplete(score + (isCorrect ? 1 : 0), accuracy, duration);
       } else {
         setGamePhase('ready');
       }
-    }, 2000);
-  }, [targetWord, attempts, score, startTime, onComplete]);
+    }, 1600);
+  }, [gamePhase, targetWord, attempts, score, startTime, onComplete, sequenceLength, wordDisplayTime, streak, user, difficulty, currentWords]);
 
   useEffect(() => {
     if (gamePhase === 'showing' && currentWords.length > 0) {
       showNextWord();
     }
   }, [gamePhase, currentWordIndex, showNextWord, currentWords.length]);
+
+  const progressValue = gamePhase === 'showing'
+    ? ((currentWordIndex + 1) / Math.max(1, currentWords.length)) * 100
+    : (attempts / maxAttempts) * 100;
 
   return (
     <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
@@ -112,7 +143,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
             <div className="flex-1 text-center">
               <CardTitle className="text-2xl">Carrera de Palabras RSVP</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Intento {attempts + 1} de 10 | Secuencia: {sequenceLength} palabras
+                Intento {Math.min(attempts + 1, maxAttempts)} de {maxAttempts} | Secuencia: {sequenceLength} palabras
               </p>
               <p className="text-xs text-muted-foreground">
                 Puntuación: {score}/{attempts}
@@ -122,6 +153,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
         </CardHeader>
 
         <CardContent className="space-y-6">
+          <Progress value={progressValue} className="h-2" />
           {gamePhase === 'ready' && (
             <div className="text-center space-y-4">
               <p className="text-muted-foreground">
@@ -130,6 +162,10 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
               <Button onClick={startSequence} className="bg-gradient-primary">
                 {attempts === 0 ? 'Comenzar' : 'Siguiente'}
               </Button>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p>Velocidad actual: {Math.round(60000 / wordDisplayTime)} ppm (palabras mostradas por min aprox)</p>
+                <p>Tiempo por palabra: {wordDisplayTime} ms • Racha: {streak}</p>
+              </div>
             </div>
           )}
 
@@ -167,17 +203,30 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
           )}
 
           {gamePhase === 'feedback' && (
-            <div className="text-center space-y-4">
-              <div className={`text-2xl font-bold ${
-                selectedAnswer === targetWord ? 'text-success' : 'text-destructive'
-              }`}>
+            <div className="text-center space-y-3">
+              <div className={`text-2xl font-bold ${selectedAnswer === targetWord ? 'text-success' : 'text-destructive'}`}> 
                 {selectedAnswer === targetWord ? '¡Correcto!' : '¡Incorrecto!'}
               </div>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>Última palabra: <strong>{targetWord}</strong></p>
-                <p>Tu respuesta: <strong>{selectedAnswer}</strong></p>
-                <p>Secuencia completa: {currentWords.join(' → ')}</p>
+              <p className="text-sm text-muted-foreground">Secuencia: {currentWords.join(' · ')}</p>
+              <p className="text-xs text-muted-foreground">Siguiente secuencia en breve…</p>
+            </div>
+          )}
+
+          {gamePhase === 'summary' && (
+            <div className="text-center space-y-4">
+              <h3 className="text-xl font-semibold">Resumen</h3>
+              <p className="text-muted-foreground text-sm">Precisión: {attempts > 0 ? Math.round((score/attempts)*100) : 0}% • Puntuación: {score}</p>
+              <div className="max-h-40 overflow-auto text-left text-xs bg-muted/30 p-3 rounded border border-border/50">
+                {sequenceHistory.map((s,i) => (
+                  <div key={i} className={`flex justify-between py-0.5 ${s.correct ? 'text-success' : 'text-destructive'}`}> 
+                    <span>{i+1}. {s.words.slice(0,-1).join(' ')} → <strong>{s.target}</strong></span>
+                    <span>{s.correct ? '✔' : '✖'}</span>
+                  </div>
+                ))}
               </div>
+              <Button onClick={() => { setAttempts(0); setScore(0); setStreak(0); setSequenceHistory([]); setSequenceLength(4 + difficulty); setWordDisplayTime(baseDisplayTime); setGamePhase('ready'); }}>
+                Reiniciar Sesión
+              </Button>
             </div>
           )}
         </CardContent>
