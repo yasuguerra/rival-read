@@ -1,113 +1,49 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface AnagramsGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
-export function AnagramsGame({ onComplete, difficulty = 1 }: AnagramsGameProps) {
-  const [gamePhase, setGamePhase] = useState<'ready' | 'playing' | 'feedback'>('ready');
+export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGameProps) {
+  const { user } = useAuth();
+  const [level, setLevel] = useState(difficulty);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [score, setScore] = useState(0);
+  const [errors, setErrors] = useState(0);
   const [currentWord, setCurrentWord] = useState('');
   const [scrambledWord, setScrambledWord] = useState('');
   const [options, setOptions] = useState<string[]>([]);
   const [correctAnswer, setCorrectAnswer] = useState('');
-  const [score, setScore] = useState(0);
-  const [attempts, setAttempts] = useState(0);
-  const [currentRound, setCurrentRound] = useState(1);
-  const [startTime, setStartTime] = useState(0);
-  const [roundStartTime, setRoundStartTime] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(30);
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const [roundsCompleted, setRoundsCompleted] = useState(0);
+  const [startTime, setStartTime] = useState<Date | null>(null);
 
-  const wordsList = [
-    // 4-5 letter words
-    'casa', 'mesa', 'agua', 'luna', 'gato', 'perro', 'libro', 'papel',
-    'verde', 'azul', 'rojo', 'blanco', 'negro', 'grande', 'pequeño',
-    // 6-7 letter words for higher difficulty
-    'amigos', 'cabeza', 'corazón', 'hermano', 'escuela', 'trabajo',
-    'familia', 'ciencia', 'historia', 'música', 'deporte', 'cultura'
-  ];
-
-  const scrambleWord = (word: string) => {
-    const letters = word.split('');
-    for (let i = letters.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [letters[i], letters[j]] = [letters[j], letters[i]];
-    }
-    return letters.join('');
+  const wordsByLength = {
+    4: ['casa', 'mesa', 'agua', 'luna', 'gato', 'perro', 'libro', 'papel', 'verde', 'azul', 'rojo', 'amor'],
+    5: ['blanco', 'negro', 'grande', 'pequeño', 'cielo', 'tierra', 'fuego', 'viento'],
+    6: ['amigos', 'cabeza', 'escuela', 'trabajo', 'familia', 'música', 'deporte'],
+    7: ['corazón', 'hermano', 'ciencia', 'historia', 'cultura'],
+    8: ['montaña', 'medicina', 'universo', 'naturaleza']
   };
 
-  const generateAnagrams = (word: string, count: number) => {
-    const anagrams = new Set<string>();
-    anagrams.add(word); // Correct answer
-    
-    while (anagrams.size < count) {
-      const scrambled = scrambleWord(word);
-      if (scrambled !== word) {
-        anagrams.add(scrambled);
-      }
-    }
-    
-    return Array.from(anagrams);
-  };
-
-  const generateRound = useCallback(() => {
-    const maxLength = 4 + difficulty;
-    const availableWords = wordsList.filter(word => word.length <= maxLength);
-    const word = availableWords[Math.floor(Math.random() * availableWords.length)];
-    
-    const scrambled = scrambleWord(word);
-    const anagrams = generateAnagrams(word, 4);
-    const shuffledOptions = anagrams.sort(() => Math.random() - 0.5);
-    
-    setCurrentWord(word);
-    setScrambledWord(scrambled);
-    setOptions(shuffledOptions);
-    setCorrectAnswer(word);
-    setTimeLeft(30);
-    setRoundStartTime(Date.now());
-    setFeedback(null);
-  }, [difficulty]);
-
-  const startGame = useCallback(() => {
-    setScore(0);
-    setAttempts(0);
-    setCurrentRound(1);
-    setStartTime(Date.now());
-    setGamePhase('playing');
-    generateRound();
-  }, [generateRound]);
-
-  const handleAnswer = (selectedWord: string) => {
-    if (gamePhase !== 'playing' || feedback) return;
-    
-    const isCorrect = selectedWord === correctAnswer;
-    const newAttempts = attempts + 1;
-    
-    setAttempts(newAttempts);
-    setFeedback(isCorrect ? 'correct' : 'incorrect');
-    
-    if (isCorrect) {
-      setScore(prev => prev + 1);
-    }
-    
-    setTimeout(() => {
-      if (currentRound >= 10) {
-        const duration = (Date.now() - startTime) / 1000;
-        const accuracy = (score / newAttempts) * 100;
-        onComplete(score, accuracy, duration);
-      } else {
-        setCurrentRound(prev => prev + 1);
-        generateRound();
-      }
-    }, 1500);
-  };
-
+  // Load saved level on component mount
   useEffect(() => {
-    if (gamePhase === 'playing' && timeLeft > 0 && !feedback) {
+    loadSavedLevel();
+  }, [user]);
+
+  // Timer effect
+  useEffect(() => {
+    if (gameStarted && timeLeft > 0 && !feedback) {
       const timer = setTimeout(() => {
         setTimeLeft(prev => prev - 1);
       }, 1000);
@@ -115,88 +51,335 @@ export function AnagramsGame({ onComplete, difficulty = 1 }: AnagramsGameProps) 
     } else if (timeLeft === 0 && !feedback) {
       handleAnswer(''); // Time's up
     }
-  }, [gamePhase, timeLeft, feedback]);
+  }, [gameStarted, timeLeft, feedback]);
+
+  const loadSavedLevel = async () => {
+    if (!user) return;
+    
+    try {
+      const { data } = await supabase
+        .from('user_game_state')
+        .select('last_level')
+        .eq('user_id', user.id)
+        .eq('game_code', 'anagrams')
+        .maybeSingle();
+      
+      if (data?.last_level) {
+        setLevel(data.last_level);
+      }
+    } catch (error) {
+      console.error('Error loading saved level:', error);
+    }
+  };
+
+  const saveLevelProgress = async (newLevel: number) => {
+    if (!user) return;
+    
+    try {
+      await supabase
+        .from('user_game_state')
+        .upsert({
+          user_id: user.id,
+          game_code: 'anagrams',
+          last_level: newLevel,
+          updated_at: new Date().toISOString()
+        });
+    } catch (error) {
+      console.error('Error saving level:', error);
+    }
+  };
+
+  const scrambleWord = (word: string) => {
+    const letters = word.split('');
+    for (let i = letters.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [letters[i], letters[j]] = [letters[j], letters[i]];
+    }
+    const scrambled = letters.join('');
+    return scrambled === word ? scrambleWord(word) : scrambled; // Ensure it's different
+  };
+
+  const generateWrongOptions = (word: string, count: number) => {
+    const options = new Set<string>();
+    const allWords = Object.values(wordsByLength).flat();
+    
+    // Add some scrambled versions that are NOT the original word
+    while (options.size < count) {
+      let wrongOption;
+      if (Math.random() > 0.5) {
+        // Create a scrambled version that's not the original
+        wrongOption = scrambleWord(word);
+        // Make sure it's different from the original word
+        if (wrongOption === word) continue;
+      } else {
+        // Use a word of similar length
+        const similarLengthWords = allWords.filter(w => 
+          Math.abs(w.length - word.length) <= 1 && w !== word
+        );
+        if (similarLengthWords.length > 0) {
+          wrongOption = similarLengthWords[Math.floor(Math.random() * similarLengthWords.length)];
+        } else {
+          wrongOption = scrambleWord(word);
+        }
+      }
+      
+      options.add(wrongOption);
+    }
+    
+    return Array.from(options);
+  };
+
+  const generateRound = () => {
+    // Determine word length based on level
+    const wordLength = Math.min(4 + Math.floor(level / 2), 8); // 4 to 8 letters
+    const optionsCount = Math.min(3 + Math.floor(level / 3), 6); // 3 to 6 options
+    
+    // Get words of appropriate length
+    const availableWords = Object.entries(wordsByLength)
+      .filter(([length]) => parseInt(length) === wordLength)
+      .map(([, words]) => words)
+      .flat();
+    
+    if (availableWords.length === 0) {
+      // Fallback to any words if none available for exact length
+      const allWords = Object.values(wordsByLength).flat();
+      const word = allWords[Math.floor(Math.random() * allWords.length)];
+      setCurrentWord(word);
+    } else {
+      const word = availableWords[Math.floor(Math.random() * availableWords.length)];
+      setCurrentWord(word);
+    }
+    
+    const word = currentWord || availableWords[0] || 'casa';
+    const scrambled = scrambleWord(word);
+    const wrongOptions = generateWrongOptions(word, optionsCount - 1);
+    const allOptions = [word, ...wrongOptions].sort(() => Math.random() - 0.5);
+    
+    setScrambledWord(scrambled);
+    setOptions(allOptions);
+    setCorrectAnswer(word);
+    setFeedback(null);
+  };
+
+  const handleAnswer = (selectedWord: string) => {
+    if (feedback) return;
+    
+    const isCorrect = selectedWord === correctAnswer;
+    setFeedback(isCorrect ? 'correct' : 'incorrect');
+    
+    if (isCorrect) {
+      setScore(prev => prev + correctAnswer.length * 5); // More points for longer words
+    } else {
+      setErrors(prev => prev + 1);
+    }
+    
+    setTimeout(() => {
+      setRoundsCompleted(prev => {
+        const newRounds = prev + 1;
+        
+        // Check if should level up (every 5 correct answers)
+        if (isCorrect && (score + correctAnswer.length * 5) % 50 === 0) {
+          const newLevel = Math.min(level + 1, 10);
+          setLevel(newLevel);
+          saveLevelProgress(newLevel);
+        }
+        
+        if (timeLeft <= 5) {
+          // Game ending
+          handleGameEnd();
+        } else {
+          // Generate new round
+          generateRound();
+        }
+        
+        return newRounds;
+      });
+    }, 1500);
+  };
+
+  const handleGameEnd = () => {
+    if (!startTime) return;
+    
+    const duration = (Date.now() - startTime.getTime()) / 1000;
+    const accuracy = roundsCompleted > 0 ? Math.min(1, score / (score + errors * 10)) : 0;
+    onComplete(score, accuracy, duration);
+  };
+
+  const startGame = () => {
+    generateRound();
+    setGameStarted(true);
+    setScore(0);
+    setErrors(0);
+    setTimeLeft(60);
+    setRoundsCompleted(0);
+    setStartTime(new Date());
+  };
+
+  const resetGame = () => {
+    setGameStarted(false);
+    setScore(0);
+    setErrors(0);
+    setTimeLeft(60);
+    setRoundsCompleted(0);
+    setFeedback(null);
+    setCurrentWord('');
+    setScrambledWord('');
+    setOptions([]);
+    setCorrectAnswer('');
+    setStartTime(null);
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Anagramas</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Encuentra la palabra correcta formada por las mismas letras
-          </p>
-          {gamePhase === 'playing' && (
-            <div className="flex justify-center gap-4 text-sm">
-              <Badge variant="outline">Ronda: {currentRound}/10</Badge>
-              <Badge variant="outline">Tiempo: {timeLeft}s</Badge>
-              <Badge variant="outline">Puntos: {score}</Badge>
-            </div>
-          )}
-        </CardHeader>
-
-        <CardContent className="space-y-6">
-          {gamePhase === 'ready' && (
-            <div className="text-center space-y-4">
-              <p className="text-muted-foreground">
-                Reordena mentalmente las letras para formar la palabra correcta.
-                Busca patrones de prefijos y sufijos comunes.
-              </p>
-              <Button onClick={startGame} className="bg-gradient-primary">
-                Comenzar
+    <div className="min-h-screen bg-gradient-bg p-4">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {onBack && (
+              <Button variant="outline" size="icon" onClick={onBack}>
+                <ArrowLeft className="w-4 h-4" />
               </Button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold">Anagramas</h1>
+              <p className="text-sm text-muted-foreground">Nivel {level} • Palabras de {Math.min(4 + Math.floor(level / 2), 8)} letras</p>
+            </div>
+          </div>
+          
+          {gameStarted && (
+            <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
+              {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
             </div>
           )}
+        </div>
 
-          {gamePhase === 'playing' && (
-            <div className="space-y-6">
-              <div className="text-center">
-                <h3 className="text-lg font-semibold mb-2">Palabra enigmática:</h3>
-                <div className="text-4xl font-bold text-primary bg-primary/10 rounded-lg py-4 px-6 inline-block">
-                  {scrambledWord.toUpperCase()}
+        {/* Game Stats */}
+        {gameStarted && (
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardContent className="p-4">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex gap-6">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Rondas</p>
+                    <p className="text-xl font-bold text-primary">{roundsCompleted}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Puntos</p>
+                    <p className="text-xl font-bold text-success">{score}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Errores</p>
+                    <p className="text-xl font-bold text-destructive">{errors}</p>
+                  </div>
                 </div>
               </div>
+              <Progress value={(60 - timeLeft) / 60 * 100} className="h-2" />
+            </CardContent>
+          </Card>
+        )}
 
-              <div className="space-y-2">
-                <h4 className="text-center font-semibold">Selecciona el anagrama correcto:</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  {options.map((option, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className={`h-12 text-lg ${
-                        feedback === 'correct' && option === correctAnswer
-                          ? 'bg-success text-white border-success'
-                          : feedback === 'incorrect' && option === correctAnswer
-                          ? 'bg-success text-white border-success'
-                          : feedback === 'incorrect' && option !== correctAnswer
-                          ? 'bg-destructive/10 border-destructive'
-                          : ''
-                      }`}
-                      onClick={() => handleAnswer(option)}
-                      disabled={!!feedback}
-                    >
-                      {option}
-                    </Button>
-                  ))}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardContent className="p-6">
+            {!gameStarted ? (
+              <div className="text-center space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold mb-2">Encuentra la palabra correcta</h2>
+                  <p className="text-muted-foreground mb-4">
+                    Reordena mentalmente las letras para formar la palabra correcta.
+                    Busca patrones de prefijos y sufijos comunes.
+                  </p>
+                  <div className="text-sm text-muted-foreground space-y-2 bg-muted/20 p-4 rounded-lg">
+                    <p><strong>Objetivo:</strong> Identifica el anagrama correcto en 60 segundos</p>
+                    <p><strong>Estrategia:</strong> Prueba permutaciones por prefijos/sufijos</p>
+                    <p><strong>Nivel {level}:</strong> Palabras de {Math.min(4 + Math.floor(level / 2), 8)} letras</p>
+                  </div>
+                </div>
+                <Button 
+                  onClick={startGame}
+                  className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Comenzar Juego
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Scrambled Word */}
+                <div className="text-center">
+                  <h3 className="text-lg font-semibold mb-2">Palabra enigmática:</h3>
+                  <div className="text-4xl font-bold text-primary bg-primary/10 rounded-lg py-4 px-6 inline-block">
+                    {scrambledWord.toUpperCase()}
+                  </div>
+                </div>
+
+                {/* Options */}
+                <div className="space-y-2">
+                  <h4 className="text-center font-semibold">Selecciona el anagrama correcto:</h4>
+                  <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
+                    {options.map((option, index) => (
+                      <Button
+                        key={index}
+                        variant="outline"
+                        className={`
+                          h-12 text-lg font-medium transition-all duration-200 touch-manipulation
+                          ${feedback === 'correct' && option === correctAnswer
+                            ? 'bg-success/20 border-success text-success'
+                            : feedback === 'incorrect' && option === correctAnswer
+                            ? 'bg-success/20 border-success text-success'
+                            : feedback === 'incorrect' && option !== correctAnswer
+                            ? 'bg-destructive/10 border-destructive/50'
+                            : 'hover:bg-primary/10 hover:border-primary/50'
+                          }
+                        `}
+                        onClick={() => handleAnswer(option)}
+                        disabled={!!feedback}
+                      >
+                        {option}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Feedback */}
+                {feedback && (
+                  <div className={`text-center text-lg font-semibold transition-all duration-300 ${
+                    feedback === 'correct' ? 'text-success' : 'text-destructive'
+                  }`}>
+                    {feedback === 'correct' ? '¡Correcto!' : '¡Incorrecto!'}
+                    {feedback === 'incorrect' && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        La respuesta correcta era: <strong>{correctAnswer}</strong>
+                      </p>
+                    )}
+                  </div>
+                )}
+                
+                <div className="flex justify-center">
+                  <Button 
+                    variant="outline" 
+                    onClick={resetGame}
+                    className="border-border/50"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Reiniciar
+                  </Button>
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
 
-              {feedback && (
-                <div className={`text-center text-lg font-semibold ${
-                  feedback === 'correct' ? 'text-success' : 'text-destructive'
-                }`}>
-                  {feedback === 'correct' ? '¡Correcto!' : '¡Incorrecto!'}
-                  {feedback === 'incorrect' && (
-                    <p className="text-sm text-muted-foreground mt-1">
-                      La respuesta correcta era: {correctAnswer}
-                    </p>
-                  )}
-                </div>
-              )}
+        {/* Tips */}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardContent className="p-4">
+            <div className="text-center text-sm text-muted-foreground space-y-1">
+              <p>💡 Busca patrones comunes: prefijos como "des-", "pre-", sufijos como "-ción", "-mente"</p>
+              <p>🎯 Detecta bigramas y trigramas frecuentes en español</p>
+              <p>⚡ El nivel aumenta automáticamente cada 50 puntos</p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
