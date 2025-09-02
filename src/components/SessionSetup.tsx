@@ -48,10 +48,11 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
 
   const handleStartSession = () => {
     console.log('Starting session with:', { selectedMode, selectedDuration });
+    console.log('Setting gameStarted to true...');
     setGameStarted(true);
   };
 
-  console.log('SessionSetup render - gameStarted:', gameStarted);
+  console.log('SessionSetup render - gameStarted:', gameStarted, 'selectedMode:', selectedMode, 'selectedDuration:', selectedDuration);
 
   if (gameStarted) {
     console.log('Rendering GameSession with:', { 
@@ -62,7 +63,10 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
       <GameSession 
         mode={selectedMode}
         duration={selectedDuration}
-        onBack={() => setGameStarted(false)}
+        onBack={() => {
+          console.log('Going back from GameSession');
+          setGameStarted(false);
+        }}
       />
     );
   }
