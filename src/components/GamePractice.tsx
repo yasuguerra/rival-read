@@ -7,6 +7,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { SchulteGame } from './games/SchulteGame';
 import { LetterSearchGame } from './games/LetterSearchGame';
 import { WordRaceGame } from './games/WordRaceGame';
+import { NumberMemoryGame } from './games/NumberMemoryGame';
+import { WordRaceRSVPGame } from './games/WordRaceRSVPGame';
+import { WordChainGame } from './games/WordChainGame';
 
 interface Game {
   id: string;
@@ -40,7 +43,7 @@ export function GamePractice({ onBack }: GamePracticeProps) {
       if (error) throw error;
 
       // Solo mostrar juegos implementados
-      const implementedGameCodes = ['schulte', 'letter_search', 'word_race'];
+      const implementedGameCodes = ['schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain'];
       const availableGames = gamesData?.filter(game => 
         implementedGameCodes.includes(game.code)
       ) || [];
@@ -61,6 +64,12 @@ export function GamePractice({ onBack }: GamePracticeProps) {
         return Zap;
       case 'word_race':
         return Brain;
+      case 'number_memory':
+        return Brain;
+      case 'word_race_rsvp':
+        return Zap;
+      case 'word_chain':
+        return Target;
       default:
         return Play;
     }
@@ -84,6 +93,12 @@ export function GamePractice({ onBack }: GamePracticeProps) {
         return <LetterSearchGame {...gameProps} />;
       case 'word_race':
         return <WordRaceGame {...gameProps} />;
+      case 'number_memory':
+        return <NumberMemoryGame {...gameProps} />;
+      case 'word_race_rsvp':
+        return <WordRaceRSVPGame {...gameProps} />;
+      case 'word_chain':
+        return <WordChainGame {...gameProps} />;
       default:
         return null;
     }

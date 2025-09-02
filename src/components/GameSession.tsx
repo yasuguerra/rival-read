@@ -10,6 +10,9 @@ import { useToast } from '@/hooks/use-toast';
 import { SchulteGame } from './games/SchulteGame';
 import { LetterSearchGame } from './games/LetterSearchGame';
 import { WordRaceGame } from './games/WordRaceGame';
+import { NumberMemoryGame } from './games/NumberMemoryGame';
+import { WordRaceRSVPGame } from './games/WordRaceRSVPGame';
+import { WordChainGame } from './games/WordChainGame';
 
 interface GameSessionProps {
   mode: 'speed' | 'comp' | 'combo';
@@ -96,7 +99,7 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
       console.log('All games loaded:', games);
 
       // Only use implemented games
-      const implementedGameCodes = ['schulte', 'letter_search', 'word_race'];
+      const implementedGameCodes = ['schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain'];
       let availableGames = games.filter(game => implementedGameCodes.includes(game.code));
 
       // Filter games based on training mode
@@ -270,6 +273,27 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
       case 'word_race':
         return (
           <WordRaceGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'number_memory':
+        return (
+          <NumberMemoryGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'word_race_rsvp':
+        return (
+          <WordRaceRSVPGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'word_chain':
+        return (
+          <WordChainGame
             onComplete={handleGameComplete}
             difficulty={1}
           />
