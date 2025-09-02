@@ -48,9 +48,11 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('GameSession useEffect triggered');
-    initializeSession();
-  }, []);
+    console.log('GameSession useEffect triggered, user:', user);
+    if (user) {
+      initializeSession();
+    }
+  }, [user]);
 
   const initializeSession = async () => {
     console.log('initializeSession called');
