@@ -40,6 +40,8 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   
+  console.log('GameSession component rendered. User:', user);
+  
   const [sessionState, setSessionState] = useState<SessionState | null>(null);
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
