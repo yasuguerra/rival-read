@@ -95,15 +95,19 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
 
       console.log('All games loaded:', games);
 
+      // Only use implemented games
+      const implementedGameCodes = ['schulte', 'letter_search', 'word_race'];
+      let availableGames = games.filter(game => implementedGameCodes.includes(game.code));
+
       // Filter games based on training mode
-      let filteredGames = games;
+      let filteredGames = availableGames;
       if (mode === 'speed') {
-        filteredGames = games.filter(game => {
+        filteredGames = availableGames.filter(game => {
           const skills = game.skills_json as any;
           return skills.speed && skills.speed > 0.5;
         });
       } else if (mode === 'comp') {
-        filteredGames = games.filter(game => {
+        filteredGames = availableGames.filter(game => {
           const skills = game.skills_json as any;
           return skills.comp && skills.comp > 0.5;
         });
