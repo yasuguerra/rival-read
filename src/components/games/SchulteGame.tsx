@@ -5,6 +5,9 @@ import { Progress } from '@/components/ui/progress';
 import { ArrowLeft, Play, RotateCcw, Target, Clock, Zap } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { trackEvent } from '@/services/analytics';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
 
 interface SchulteGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -160,16 +163,17 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
       const newGridSize = Math.min(4 + newLevel, 8); // 5x5 to 8x8
       setGridSize(newGridSize);
       saveLevelProgress(newLevel);
+      trackEvent(user?.id, 'level_up', { game: 'schulte', newLevel });
     }
     
     setBoardsCompleted(prev => prev + 1);
     
     // Calculate XP for this board
-    const baseXP = 10;
-    const levelBonus = level * 2;
-    const speedBonus = Math.max(0, Math.floor((timeThreshold - boardTime) * 2));
-    const boardXP = baseXP + levelBonus + speedBonus;
-    setTotalXP(prev => prev + boardXP);
+  // Approximate score for XP: favor speed and penalize errors
+  const syntheticScore = Math.max(1, Math.round((100 - Math.min(100, boardTime * 3)) - errors * 5));
+  const boardXP = computeGameXp('schulte', { level, score: syntheticScore });
+  setTotalXP(prev => prev + boardXP);
+  awardXp(user?.id, boardXP, 'game', { game: 'schulte', boardTime, level, errors });
     
     // Generate new grid if time remaining
     if (timeLeft > 5) {
@@ -180,7 +184,7 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     }
   };
 
-  const handleGameEnd = () => {
+  const handleGameEnd = async () => {
     if (!startTime) return;
     
     setGameCompleted(true);
@@ -189,10 +193,26 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     }
     
     const duration = 60 - timeLeft; // Total time played
-    const accuracy = boardsCompleted > 0 ? 1.0 : foundNumbers / (gridSize * gridSize);
-    const score = totalXP;
-    
-    onComplete(score, accuracy, duration);
+  const accuracyFraction = boardsCompleted > 0 ? 1.0 : foundNumbers / (gridSize * gridSize);
+  const accuracyPct = accuracyFraction * 100;
+  const score = totalXP;
+    try {
+      if (user) {
+        await recordGameRun({
+          userId: user.id,
+          gameCode: 'schulte',
+          level,
+          score,
+          accuracy: accuracyPct,
+          durationSec: duration,
+          params: { boardsCompleted, errors }
+        });
+      }
+      trackEvent(user?.id, 'game_end', { game: 'schulte', score, accuracy: accuracyPct, boardsCompleted, errors, level });
+    } catch (e) {
+      console.error('Failed to record schulte run', e);
+    }
+    onComplete(score, accuracyPct, duration);
   };
 
   const startGame = () => {
@@ -205,6 +225,7 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     setFoundNumbers(0);
     setBoardsCompleted(0);
     setTotalXP(0);
+  trackEvent(user?.id, 'game_start', { game: 'schulte', level });
   };
 
   const resetGame = () => {
@@ -220,6 +241,7 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
+  // No specific reset event type in analytics schema; omit or repurpose if added later
   };
 
   return (

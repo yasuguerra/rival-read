@@ -2,13 +2,19 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
+import { trackEvent } from '@/services/analytics';
 
 interface TextScanningGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
-export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGameProps) {
+export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextScanningGameProps) {
+  const { user } = useAuth();
   const [gamePhase, setGamePhase] = useState<'ready' | 'playing' | 'feedback'>('ready');
   const [targetWords, setTargetWords] = useState<string[]>([]);
   const [textContent, setTextContent] = useState('');
@@ -56,6 +62,7 @@ export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGam
     setStartTime(Date.now());
     setGamePhase('playing');
     generateRound();
+    trackEvent(user?.id, 'game_start', { game: 'text_scanning', difficulty });
   }, [generateRound]);
 
   const highlightText = () => {
@@ -81,9 +88,8 @@ export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGam
       if (foundWords.size + 1 >= targetWords.length) {
         setTimeout(() => {
           if (currentRound >= 5) {
-            const duration = (Date.now() - startTime) / 1000;
-            const accuracy = (score / (score + errors)) * 100;
-            onComplete(score, accuracy, duration);
+            // Wait for user to finish via button or auto finalize
+            setGamePhase('feedback');
           } else {
             setCurrentRound(prev => prev + 1);
             generateRound();
@@ -104,11 +110,33 @@ export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGam
       }, 1000);
       return () => clearTimeout(timer);
     } else if (timeLeft === 0) {
-      const duration = (Date.now() - startTime) / 1000;
-      const accuracy = score > 0 ? (score / (score + errors)) * 100 : 0;
-      onComplete(score, accuracy, duration);
+      setGamePhase('feedback');
     }
   }, [gamePhase, timeLeft, score, errors, startTime, onComplete]);
+
+  const finalizeGame = async () => {
+    const duration = (Date.now() - startTime) / 1000;
+    const accuracyPct = score > 0 ? (score / (score + errors)) * 100 : 0;
+    try {
+      if (user) {
+        await recordGameRun({
+          userId: user.id,
+          gameCode: 'text_scanning',
+          level: difficulty,
+          score,
+          accuracy: accuracyPct,
+          durationSec: duration,
+          params: { errors, rounds: currentRound }
+        });
+      }
+      const xp = computeGameXp('text_scanning', { score, accuracy: accuracyPct, level: difficulty });
+      awardXp(user?.id, xp, 'game', { game: 'text_scanning' });
+      trackEvent(user?.id, 'game_end', { game: 'text_scanning', score, accuracy: accuracyPct });
+    } catch (e) {
+      console.error('Failed to finalize text scanning game', e);
+    }
+    onComplete(score, accuracyPct, duration);
+  };
 
   const renderClickableText = () => {
     return textContent.split(/\s+/).map((word, index) => {
@@ -142,11 +170,23 @@ export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGam
           <p className="text-sm text-muted-foreground">
             Encuentra las palabras objetivo en el texto lo más rápido posible
           </p>
+          {onBack && (
+            <div className="absolute left-4 top-4">
+              <Button variant="outline" size="sm" onClick={onBack}>Volver</Button>
+            </div>
+          )}
           {gamePhase === 'playing' && (
             <div className="flex justify-center gap-4 text-sm">
               <Badge variant="outline">Ronda: {currentRound}/5</Badge>
               <Badge variant="outline">Tiempo: {timeLeft}s</Badge>
               <Badge variant="outline">Encontradas: {foundWords.size}/{targetWords.length}</Badge>
+              <Badge variant="outline">Errores: {errors}</Badge>
+            </div>
+          )}
+          {gamePhase === 'feedback' && (
+            <div className="flex justify-center gap-4 text-sm">
+              <Badge variant="outline">Rondas: {currentRound}</Badge>
+              <Badge variant="outline">Puntuación: {score}</Badge>
               <Badge variant="outline">Errores: {errors}</Badge>
             </div>
           )}
@@ -190,6 +230,17 @@ export function TextScanningGame({ onComplete, difficulty = 1 }: TextScanningGam
 
               <div className="text-center text-sm text-muted-foreground">
                 <p>Haz clic en las palabras para seleccionarlas • Evita leer palabra por palabra</p>
+              </div>
+            </div>
+          )}
+
+          {gamePhase === 'feedback' && (
+            <div className="text-center space-y-4">
+              <h3 className="text-xl font-semibold">Resumen</h3>
+              <p className="text-muted-foreground">Has encontrado {score} palabras con {errors} errores.</p>
+              <div className="flex justify-center gap-2">
+                <Button onClick={finalizeGame} className="bg-gradient-primary">Finalizar</Button>
+                <Button variant="outline" onClick={startGame}>Reiniciar</Button>
               </div>
             </div>
           )}

@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ArrowLeft } from 'lucide-react';
 
 interface NeuronAcceleratorGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
-export function NeuronAcceleratorGame({ onComplete, difficulty = 1 }: NeuronAcceleratorGameProps) {
+export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: NeuronAcceleratorGameProps) {
   const [gamePhase, setGamePhase] = useState<'ready' | 'playing' | 'feedback'>('ready');
   const [currentTask, setCurrentTask] = useState<'stroop' | 'flanker'>('stroop');
   const [stimulus, setStimulus] = useState('');
@@ -108,18 +110,27 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1 }: NeuronAcce
   return (
     <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Acelerador de Neuronas</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Ejercicios de control inhibitorio y atención selectiva
-          </p>
-          {gamePhase === 'playing' && (
-            <div className="flex justify-center gap-4 text-sm">
-              <Badge variant="outline">Trial: {currentTrial}/20</Badge>
-              <Badge variant="outline">Puntos: {score}</Badge>
-              <Badge variant="outline">TR Promedio: {getAverageReactionTime()}ms</Badge>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            {onBack && (
+              <Button variant="outline" size="icon" onClick={onBack}>
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            )}
+            <div className="flex-1 text-center">
+              <CardTitle className="text-2xl">Acelerador de Neuronas</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Ejercicios de control inhibitorio y atención selectiva
+              </p>
+              {gamePhase === 'playing' && (
+                <div className="flex justify-center gap-4 text-sm mt-2">
+                  <Badge variant="outline">Trial: {currentTrial}/20</Badge>
+                  <Badge variant="outline">Puntos: {score}</Badge>
+                  <Badge variant="outline">TR Promedio: {getAverageReactionTime()}ms</Badge>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-6">

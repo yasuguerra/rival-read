@@ -68,6 +68,30 @@ export type Database = {
           },
         ]
       }
+      analytics_events: {
+        Row: {
+          id: string
+          user_id: string
+          event_type: string
+          event_ts: string
+          meta: Json | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          event_type: string
+          event_ts?: string
+          meta?: Json | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          event_type?: string
+          event_ts?: string
+          meta?: Json | null
+        }
+        Relationships: []
+      }
       games: {
         Row: {
           code: string

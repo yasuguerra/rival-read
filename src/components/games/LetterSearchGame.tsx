@@ -3,14 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Search, Clock, Target, Zap } from 'lucide-react';
+import { Search, Clock, Target, Zap, ArrowLeft } from 'lucide-react';
 
 interface LetterSearchGameProps {
   onComplete: (score: number, accuracy: number, durationSec: number) => void;
   difficulty: number;
+  onBack?: () => void;
 }
 
-export function LetterSearchGame({ onComplete, difficulty }: LetterSearchGameProps) {
+export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearchGameProps) {
   const gridSize = Math.min(8 + Math.floor(difficulty), 12); // 8x8 to 12x12
   const targetCount = Math.min(3 + Math.floor(difficulty / 2), 6); // 3-6 targets
   const gameTimeLimit = Math.max(30 - difficulty * 2, 15); // 30s to 15s
@@ -120,10 +121,17 @@ export function LetterSearchGame({ onComplete, difficulty }: LetterSearchGamePro
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Search className="w-5 h-5 text-primary" />
-          Búsqueda de Letras {gridSize}×{gridSize}
-        </CardTitle>
+        <div className="flex items-center gap-3">
+          {onBack && (
+            <Button variant="outline" size="icon" onClick={onBack}>
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+          )}
+          <CardTitle className="flex items-center gap-2">
+            <Search className="w-5 h-5 text-primary" />
+            Búsqueda de Letras {gridSize}×{gridSize}
+          </CardTitle>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Target Letters */}

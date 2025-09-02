@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
+import { trackEvent } from '@/services/analytics';
 
 interface EvenOddGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -25,6 +28,8 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
   const [errors, setErrors] = useState(0);
   const [timeLeft, setTimeLeft] = useState(45);
   const [targetCount, setTargetCount] = useState(0);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [runStart, setRunStart] = useState<number | null>(null);
 
   // Load saved level on component mount
   useEffect(() => {
@@ -126,20 +131,21 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
       
       // Check if all targets found
       if (foundNumbers.size + 1 >= targetCount) {
-        // All found! Level up and regenerate
         const newLevel = Math.min(level + 1, 10);
         setLevel(newLevel);
         saveLevelProgress(newLevel);
-        
-        // Switch rule every few levels
+        setShowLevelUp(true);
+        trackEvent(user?.id, 'level_up', { game: 'even_odd', newLevel });
+  const levelXp = computeGameXp('even_odd', { score, level: newLevel });
+  awardXp(user?.id, levelXp, 'game', { game: 'even_odd', event: 'level_complete' });
         if (level > 1 && level % 3 === 0) {
           setCurrentRule(prev => prev === 'even' ? 'odd' : 'even');
         }
-        
         setTimeout(() => {
+          setShowLevelUp(false);
           setFoundNumbers(new Set());
           generateGrid();
-        }, 1000);
+        }, 1500);
       }
     } else {
       setErrors(prev => prev + 1);
@@ -149,11 +155,25 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
     }
   };
 
-  const handleGameEnd = () => {
+  const handleGameEnd = async () => {
     setGameCompleted(true);
-    const duration = 45 - timeLeft;
-    const accuracy = score > 0 ? Math.min(1, score / (score + errors * 5)) : 0;
-    onComplete(score, accuracy, duration);
+  const duration = 45 - timeLeft;
+  const accuracyPct = score > 0 ? (score / (score + errors * 5)) * 100 : 0;
+    if (user) {
+      await recordGameRun({
+        userId: user.id,
+        gameCode: 'even_odd',
+        level,
+        score,
+    accuracy: accuracyPct,
+        durationSec: duration,
+        params: { errors }
+      });
+    }
+  const xp = computeGameXp('even_odd', { score, accuracy: accuracyPct, level });
+  awardXp(user?.id, xp, 'game', { game: 'even_odd' });
+  trackEvent(user?.id, 'game_end', { game: 'even_odd', level, score, accuracy: accuracyPct });
+  onComplete(score, accuracyPct, duration);
   };
 
   const startGame = () => {
@@ -165,6 +185,10 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
     setScore(0);
     setErrors(0);
     setTimeLeft(45);
+    setShowLevelUp(false);
+    const t = Date.now();
+    setRunStart(t);
+    trackEvent(user?.id, 'game_start', { game: 'even_odd', level });
   };
 
   const resetGame = () => {
@@ -176,6 +200,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
     setTimeLeft(45);
     setNumbersGrid([]);
     setTargetCount(0);
+    setShowLevelUp(false);
   };
 
   return (
@@ -291,6 +316,9 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
                     })
                   )}
                 </div>
+                {showLevelUp && (
+                  <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
+                )}
                 
                 <div className="flex justify-center">
                   <Button 

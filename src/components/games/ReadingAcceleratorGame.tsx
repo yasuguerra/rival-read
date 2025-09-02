@@ -3,13 +3,20 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/hooks/useAuth';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
+import { trackEvent } from '@/services/analytics';
+import { ArrowLeft } from 'lucide-react';
 
 interface ReadingAcceleratorGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
-export function ReadingAcceleratorGame({ onComplete, difficulty = 1 }: ReadingAcceleratorGameProps) {
+export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: ReadingAcceleratorGameProps) {
+  const { user } = useAuth();
   const [gamePhase, setGamePhase] = useState<'ready' | 'reading' | 'questions' | 'feedback'>('ready');
   const [currentText, setCurrentText] = useState('');
   const [currentPosition, setCurrentPosition] = useState(0);
@@ -67,7 +74,8 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1 }: ReadingAc
     setWordsPerMinute(180 + difficulty * 40); // Increase WPM with difficulty
     setStartTime(Date.now());
     setGamePhase('reading');
-  }, [difficulty]);
+    trackEvent(user?.id, 'game_start', { game: 'reading_accelerator', wpm: 180 + difficulty * 40, level: difficulty });
+  }, [difficulty, user?.id]);
 
   const calculateReadingProgress = () => {
     return (currentPosition / words.length) * 100;
@@ -95,7 +103,7 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1 }: ReadingAc
     });
   };
 
-  const handleAnswer = (answerIndex: number) => {
+  const handleAnswer = async (answerIndex: number) => {
     const newAnswers = [...userAnswers, answerIndex];
     setUserAnswers(newAnswers);
     
@@ -109,6 +117,28 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1 }: ReadingAc
       // All questions answered
       const duration = (Date.now() - startTime) / 1000;
       const accuracy = (score / questions.length) * 100;
+      // Compute WPM based on words shown and total time in minutes
+      const wpm = Math.round(words.length / (duration / 60));
+      // XP calculation
+      const xp = computeGameXp('reading_accelerator', { wpm, accuracy, score, level: difficulty });
+      try {
+        if (user) {
+          await recordGameRun({
+            userId: user.id,
+            gameCode: 'reading_accelerator',
+            level: difficulty,
+            score,
+            accuracy,
+            durationSec: duration,
+            params: { wpm }
+          });
+        }
+        awardXp(user?.id, xp, 'game', { game: 'reading_accelerator', wpm });
+        trackEvent(user?.id, 'wpm_measured', { game: 'reading_accelerator', wpm, level: difficulty });
+        trackEvent(user?.id, 'game_end', { game: 'reading_accelerator', score, accuracy, wpm, level: difficulty });
+      } catch (e) {
+        console.error('Failed to record reading accelerator results', e);
+      }
       onComplete(score, accuracy, duration);
     }
   };
@@ -132,7 +162,14 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1 }: ReadingAc
   return (
     <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
       <Card className="w-full max-w-4xl border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader className="text-center">
+        <CardHeader className="text-center relative">
+          {onBack && (
+            <div className="absolute left-4 top-4">
+              <Button variant="outline" size="icon" onClick={onBack} aria-label="Volver">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
           <CardTitle className="text-2xl">Acelerador de Lectura</CardTitle>
           <p className="text-sm text-muted-foreground">
             Sigue la iluminación y lee a velocidad acelerada

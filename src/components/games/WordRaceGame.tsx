@@ -3,11 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Play, Pause, RotateCcw, Zap, Brain, Target } from 'lucide-react';
+import { Play, Pause, RotateCcw, Zap, Brain, Target, ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
+import { trackEvent } from '@/services/analytics';
 
 interface WordRaceGameProps {
   onComplete: (score: number, accuracy: number, durationSec: number) => void;
   difficulty: number;
+  onBack?: () => void;
 }
 
 const sampleTexts = [
@@ -18,7 +23,8 @@ const sampleTexts = [
   "La neuroplasticidad es la capacidad del cerebro para reorganizarse y formar nuevas conexiones neuronales. Esta característica permite que podamos aprender y mejorar habilidades cognitivas a cualquier edad."
 ];
 
-export function WordRaceGame({ onComplete, difficulty }: WordRaceGameProps) {
+export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGameProps) {
+  const { user } = useAuth();
   const baseWPM = 150 + (difficulty * 25); // 150-400 WPM range
   const wordsPerChunk = Math.min(1 + Math.floor(difficulty / 2), 3); // 1-3 words per chunk
   
@@ -92,6 +98,7 @@ export function WordRaceGame({ onComplete, difficulty }: WordRaceGameProps) {
   const handlePlay = () => {
     if (!startTime) {
       setStartTime(new Date());
+      trackEvent(user?.id, 'game_start', { game: 'word_race', difficulty });
     }
     setIsPlaying(true);
   };
@@ -115,7 +122,7 @@ export function WordRaceGame({ onComplete, difficulty }: WordRaceGameProps) {
     }
   };
 
-  const handleAnswerQuestion = (answerIndex: number) => {
+  const handleAnswerQuestion = async (answerIndex: number) => {
     const isCorrect = answerIndex === questions[currentQuestion].correct;
     const newAnswers = [...answers, isCorrect];
     setAnswers(newAnswers);
@@ -125,11 +132,26 @@ export function WordRaceGame({ onComplete, difficulty }: WordRaceGameProps) {
     } else {
       // Complete game
       const duration = startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 60;
-      const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
+  const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
+  const accuracyPct = accuracy * 100;
       const readingWPM = words.length / (duration / 60);
       const score = Math.round(readingWPM * accuracy * 10);
-      
-      onComplete(score, accuracy, duration);
+      const xp = computeGameXp('word_race', { wpm: readingWPM, accuracy, score, level: difficulty });
+      if (user) {
+        await recordGameRun({
+          userId: user.id,
+          gameCode: 'word_race',
+          level: difficulty,
+            score,
+    accuracy: accuracyPct,
+            durationSec: duration,
+            params: { readingWPM }
+        });
+      }
+      awardXp(user?.id, xp, 'game', { game: 'word_race' });
+      trackEvent(user?.id, 'wpm_measured', { game: 'word_race', wpm: readingWPM });
+  trackEvent(user?.id, 'game_end', { game: 'word_race', score, accuracy: accuracyPct });
+  onComplete(score, accuracyPct, duration);
     }
   };
 
@@ -191,6 +213,9 @@ export function WordRaceGame({ onComplete, difficulty }: WordRaceGameProps) {
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
+          {onBack && (
+            <Button variant="outline" size="icon" onClick={onBack} className="mr-2"><ArrowLeft className="w-4 h-4" /></Button>
+          )}
           <Zap className="w-5 h-5 text-primary" />
           Carrera de Palabras
         </CardTitle>

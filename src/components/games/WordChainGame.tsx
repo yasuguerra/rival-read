@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Check, X } from 'lucide-react';
+import { Check, X, ArrowLeft } from 'lucide-react';
 
 interface WordChainGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
 const WORD_BANK = [
@@ -18,7 +19,7 @@ const WORD_BANK = [
   'escuela', 'profesor', 'estudiante', 'clase', 'examen', 'nota', 'ejercicio', 'tarea', 'proyecto'
 ];
 
-export function WordChainGame({ onComplete, difficulty = 1 }: WordChainGameProps) {
+export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainGameProps) {
   const [gamePhase, setGamePhase] = useState<'ready' | 'showing' | 'selecting' | 'feedback'>('ready');
   const [targetSequence, setTargetSequence] = useState<string[]>([]);
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
@@ -94,14 +95,25 @@ export function WordChainGame({ onComplete, difficulty = 1 }: WordChainGameProps
   return (
     <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
       <Card className="w-full max-w-2xl border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Cadena de Palabras</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Intento {attempts + 1} de 10 | Secuencia: {sequenceLength} palabras
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Puntuación: {score}/{attempts}
-          </p>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {onBack && (
+                <Button variant="outline" size="icon" onClick={onBack}>
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+              )}
+              <div>
+                <CardTitle className="text-2xl">Cadena de Palabras</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Intento {attempts + 1} de 10 | Secuencia: {sequenceLength} palabras
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Puntuación: {score}/{attempts}
+                </p>
+              </div>
+            </div>
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-6">

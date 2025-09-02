@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
+import { trackEvent } from '@/services/analytics';
 
 interface FindNumberGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -26,6 +29,8 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
   const [sequencesFound, setSequencesFound] = useState(0);
   const [totalSequences, setTotalSequences] = useState(5);
   const [startTime, setStartTime] = useState<Date | null>(null);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [sequenceGuaranteed, setSequenceGuaranteed] = useState(false);
 
   // Load saved level on component mount
   useEffect(() => {
@@ -135,7 +140,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
     }
     
     // Place the sequence in the grid
-    let placed = false;
+  let placed = false;
     let attempts = 0;
     
     while (!placed && attempts < 100) {
@@ -150,8 +155,9 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
       attempts++;
     }
     
-    setNumbersGrid(grid);
-    setTargetSequence(sequence);
+  setNumbersGrid(grid);
+  setTargetSequence(sequence);
+  setSequenceGuaranteed(placed);
   };
 
   const handleCellClick = (rowIndex: number, colIndex: number) => {
@@ -176,15 +182,18 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
       setSequencesFound(prev => {
         const newFound = prev + 1;
         if (newFound >= totalSequences) {
-          // Level up and generate new grid
           const newLevel = Math.min(level + 1, 10);
-          setLevel(newLevel);
-          saveLevelProgress(newLevel);
-          
-          setTimeout(() => {
-            setSequencesFound(0);
-            generateGrid();
-          }, 1000);
+            setLevel(newLevel);
+            saveLevelProgress(newLevel);
+            setShowLevelUp(true);
+            const levelXp = computeGameXp('find_number', { score, level: newLevel });
+            awardXp(user?.id, levelXp, 'game', { game: 'find_number', event: 'level_complete' });
+            trackEvent(user?.id, 'level_up', { game: 'find_number', newLevel });
+            setTimeout(() => {
+              setShowLevelUp(false);
+              setSequencesFound(0);
+              generateGrid();
+            }, 1500);
         } else {
           // Generate new sequence in same grid
           setTimeout(() => {
@@ -205,12 +214,25 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
     setSelectedPath([]);
   };
 
-  const handleGameEnd = () => {
+  const handleGameEnd = async () => {
     if (!startTime) return;
-    
-    const duration = (Date.now() - startTime.getTime()) / 1000;
-    const accuracy = score > 0 ? Math.min(1, score / (score + errors * 5)) : 0;
-    onComplete(score, accuracy, duration);
+  const duration = (Date.now() - startTime.getTime()) / 1000;
+  const accuracyPct = score > 0 ? (score / (score + errors * 5)) * 100 : 0;
+    if (user) {
+      await recordGameRun({
+        userId: user.id,
+        gameCode: 'find_number',
+        level,
+        score,
+    accuracy: accuracyPct,
+        durationSec: duration,
+        params: { errors, sequencesFound }
+      });
+    }
+  const xp = computeGameXp('find_number', { score, accuracy: accuracyPct, level });
+  awardXp(user?.id, xp, 'game', { game: 'find_number' });
+  trackEvent(user?.id, 'game_end', { game: 'find_number', level, score, accuracy: accuracyPct });
+  onComplete(score, accuracyPct, duration);
   };
 
   const startGame = () => {
@@ -222,6 +244,8 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
     setSequencesFound(0);
     setSelectedPath([]);
     setStartTime(new Date());
+    setShowLevelUp(false);
+    trackEvent(user?.id, 'game_start', { game: 'find_number', level });
   };
 
   const resetGame = () => {
@@ -234,6 +258,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
     setNumbersGrid([]);
     setTargetSequence([]);
     setStartTime(null);
+    setShowLevelUp(false);
   };
 
   const isSelected = (rowIndex: number, colIndex: number) => {
@@ -324,6 +349,9 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                   <div className="text-3xl font-bold text-primary bg-primary/10 rounded-lg py-3 px-6 inline-block font-mono">
                     {targetSequence.join(' - ')}
                   </div>
+                  {!sequenceGuaranteed && (
+                    <p className="text-xs text-destructive mt-2">Re-generando secuencia... (intenta de nuevo si no aparece)</p>
+                  )}
                 </div>
 
                 {/* Numbers Grid */}
@@ -379,6 +407,9 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                   </div>
                 )}
                 
+                {showLevelUp && (
+                  <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
+                )}
                 <div className="flex justify-center gap-2">
                   <Button 
                     variant="outline" 

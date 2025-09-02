@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react';
 interface WordRaceRSVPGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
   difficulty?: number;
+  onBack?: () => void;
 }
 
 const WORD_BANK = [
@@ -16,7 +17,7 @@ const WORD_BANK = [
   'familia', 'amigo', 'persona', 'niño', 'adulto', 'ciudad', 'país', 'viaje', 'camino', 'coche'
 ];
 
-export function WordRaceRSVPGame({ onComplete, difficulty = 1 }: WordRaceRSVPGameProps) {
+export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRaceRSVPGameProps) {
   const [gamePhase, setGamePhase] = useState<'ready' | 'showing' | 'answering' | 'feedback'>('ready');
   const [currentWords, setCurrentWords] = useState<string[]>([]);
   const [targetWord, setTargetWord] = useState('');
@@ -101,14 +102,23 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1 }: WordRaceRSVPGam
   return (
     <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
       <Card className="w-full max-w-lg border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Carrera de Palabras RSVP</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Intento {attempts + 1} de 10 | Secuencia: {sequenceLength} palabras
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Puntuación: {score}/{attempts}
-          </p>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            {onBack && (
+              <Button variant="outline" size="icon" onClick={onBack}>
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+            )}
+            <div className="flex-1 text-center">
+              <CardTitle className="text-2xl">Carrera de Palabras RSVP</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Intento {attempts + 1} de 10 | Secuencia: {sequenceLength} palabras
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Puntuación: {score}/{attempts}
+              </p>
+            </div>
+          </div>
         </CardHeader>
 
         <CardContent className="space-y-6">

@@ -6,6 +6,9 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { trackEvent } from '@/services/analytics';
+import { recordGameRun } from '@/services/gameRuns';
+import { awardXp, computeGameXp } from '@/services/xp';
 
 interface NumberMemoryGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -98,7 +101,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
     const newAttempts = attempts + 1;
     setAttempts(newAttempts);
     
-    if (isCorrect) {
+  if (isCorrect) {
       setScore(prev => prev + Math.pow(2, digits - 3)); // Exponential scoring: 2^(digits-3)
       setCorrectStreak(prev => {
         const newStreak = prev + 1;
@@ -113,17 +116,18 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
           saveLevelProgress(newLevel);
           // Slightly decrease show time as level increases
           setShowTime(prev => Math.max(prev - 50, 1000));
+          trackEvent(user?.id, 'level_up', { game: 'number_memory', newLevel });
         }
         
         return newStreak;
       });
-    } else {
+  } else {
       setIncorrectStreak(prev => {
         const newStreak = prev + 1;
         setCorrectStreak(0);
         
         // Level down every 3 incorrect answers
-        if (newStreak % 3 === 0) {
+  if (newStreak % 3 === 0) {
           const newLevel = Math.max(level - 1, 1);
           const newDigits = Math.max(3 + newLevel, 4);
           setLevel(newLevel);
@@ -138,6 +142,11 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
     }
     
     setGamePhase('feedback');
+    // Award XP per attempt (only on correct) using computeGameXp with score delta
+    if (isCorrect) {
+      const attemptXp = computeGameXp('number_memory', { score: Math.pow(2, digits - 3), level });
+      awardXp(user?.id, attemptXp, 'game', { game: 'number_memory', digits });
+    }
     
     setTimeout(() => {
       if (newAttempts >= 15) { // 15 attempts per game
@@ -148,12 +157,29 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
     }, 1500);
   };
 
-  const handleGameEnd = () => {
+  const handleGameEnd = async () => {
     if (!startTime) return;
     
     const duration = (Date.now() - startTime.getTime()) / 1000;
-    const accuracy = attempts > 0 ? (score > 0 ? Math.min(1, correctStreak / attempts) : 0) : 0;
-    onComplete(score, accuracy, duration);
+  const accuracyFraction = attempts > 0 ? (score > 0 ? Math.min(1, correctStreak / attempts) : 0) : 0;
+  const accuracyPct = accuracyFraction * 100;
+    try {
+      if (user) {
+        await recordGameRun({
+          userId: user.id,
+          gameCode: 'number_memory',
+          level,
+          score,
+          accuracy: accuracyPct,
+          durationSec: duration,
+          params: { attempts, digits }
+        });
+      }
+      trackEvent(user?.id, 'game_end', { game: 'number_memory', score, accuracy: accuracyPct, attempts, level, digits });
+    } catch (e) {
+      console.error('Failed to record number memory run', e);
+    }
+    onComplete(score, accuracyPct, duration);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -169,6 +195,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
     setIncorrectStreak(0);
     setStartTime(new Date());
     setGamePhase('ready');
+    trackEvent(user?.id, 'game_start', { game: 'number_memory', level });
   };
 
   const resetGame = () => {
