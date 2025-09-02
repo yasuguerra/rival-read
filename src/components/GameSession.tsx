@@ -13,6 +13,15 @@ import { WordRaceGame } from './games/WordRaceGame';
 import { NumberMemoryGame } from './games/NumberMemoryGame';
 import { WordRaceRSVPGame } from './games/WordRaceRSVPGame';
 import { WordChainGame } from './games/WordChainGame';
+import { TwinWordsGame } from './games/TwinWordsGame';
+import { EvenOddGame } from './games/EvenOddGame';
+import { AnagramsGame } from './games/AnagramsGame';
+import { FindNumberGame } from './games/FindNumberGame';
+import { VisualFieldGame } from './games/VisualFieldGame';
+import { FindWordsGame } from './games/FindWordsGame';
+import { TextScanningGame } from './games/TextScanningGame';
+import { ReadingAcceleratorGame } from './games/ReadingAcceleratorGame';
+import { NeuronAcceleratorGame } from './games/NeuronAcceleratorGame';
 
 interface GameSessionProps {
   mode: 'speed' | 'comp' | 'combo';
@@ -99,7 +108,11 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
       console.log('All games loaded:', games);
 
       // Only use implemented games
-      const implementedGameCodes = ['schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain'];
+      const implementedGameCodes = [
+        'schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain',
+        'twin_words', 'even_odd', 'anagrams', 'find_number', 'visual_field', 'find_words',
+        'text_scanning', 'reading_accelerator', 'neuron_accelerator'
+      ];
       let availableGames = games.filter(game => implementedGameCodes.includes(game.code));
 
       // Filter games based on training mode
@@ -294,6 +307,69 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
       case 'word_chain':
         return (
           <WordChainGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'twin_words':
+        return (
+          <TwinWordsGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'even_odd':
+        return (
+          <EvenOddGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'anagrams':
+        return (
+          <AnagramsGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'find_number':
+        return (
+          <FindNumberGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'visual_field':
+        return (
+          <VisualFieldGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'find_words':
+        return (
+          <FindWordsGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'text_scanning':
+        return (
+          <TextScanningGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'reading_accelerator':
+        return (
+          <ReadingAcceleratorGame
+            onComplete={handleGameComplete}
+            difficulty={1}
+          />
+        );
+      case 'neuron_accelerator':
+        return (
+          <NeuronAcceleratorGame
             onComplete={handleGameComplete}
             difficulty={1}
           />
