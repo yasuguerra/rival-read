@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { RivalAvatar } from './RivalAvatar';
 import { SessionSetup } from './SessionSetup';
+import { GamePractice } from './GamePractice';
 
 interface UserStats {
   totalXP: number;
@@ -42,6 +43,7 @@ export function Dashboard() {
     rivalXP: 0
   });
   const [showSessionSetup, setShowSessionSetup] = useState(false);
+  const [showGamePractice, setShowGamePractice] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -125,6 +127,10 @@ export function Dashboard() {
 
   if (showSessionSetup) {
     return <SessionSetup onBack={() => setShowSessionSetup(false)} />;
+  }
+
+  if (showGamePractice) {
+    return <GamePractice onBack={() => setShowGamePractice(false)} />;
   }
 
   return (
@@ -253,13 +259,22 @@ export function Dashboard() {
         </div>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Button 
             onClick={() => setShowSessionSetup(true)}
             className="h-16 bg-gradient-primary hover:shadow-glow-primary transition-all duration-300 text-lg"
           >
             <Play className="w-6 h-6 mr-2" />
             Entrenar Ahora
+          </Button>
+          
+          <Button 
+            onClick={() => setShowGamePractice(true)}
+            variant="outline" 
+            className="h-16 border-border/50 hover:bg-secondary/50 text-lg"
+          >
+            <Target className="w-6 h-6 mr-2" />
+            Práctica Libre
           </Button>
           
           <Button 
