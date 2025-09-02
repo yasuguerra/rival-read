@@ -10,6 +10,10 @@ import { WordRaceGame } from './games/WordRaceGame';
 import { NumberMemoryGame } from './games/NumberMemoryGame';
 import { WordRaceRSVPGame } from './games/WordRaceRSVPGame';
 import { WordChainGame } from './games/WordChainGame';
+import { TwinWordsGame } from './games/TwinWordsGame';
+import { EvenOddGame } from './games/EvenOddGame';
+import { AnagramsGame } from './games/AnagramsGame';
+import { FindNumberGame } from './games/FindNumberGame';
 
 interface Game {
   id: string;
@@ -43,7 +47,7 @@ export function GamePractice({ onBack }: GamePracticeProps) {
       if (error) throw error;
 
       // Solo mostrar juegos implementados
-      const implementedGameCodes = ['schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain'];
+      const implementedGameCodes = ['schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain', 'twin_words', 'even_odd', 'anagrams', 'find_number'];
       const availableGames = gamesData?.filter(game => 
         implementedGameCodes.includes(game.code)
       ) || [];
@@ -99,6 +103,14 @@ export function GamePractice({ onBack }: GamePracticeProps) {
         return <WordRaceRSVPGame {...gameProps} />;
       case 'word_chain':
         return <WordChainGame {...gameProps} />;
+      case 'twin_words':
+        return <TwinWordsGame {...gameProps} />;
+      case 'even_odd':
+        return <EvenOddGame {...gameProps} />;
+      case 'anagrams':
+        return <AnagramsGame {...gameProps} />;
+      case 'find_number':
+        return <FindNumberGame {...gameProps} />;
       default:
         return null;
     }
