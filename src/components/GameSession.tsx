@@ -53,6 +53,8 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
     if (!user) return;
 
     try {
+      console.log('Initializing session with mode:', mode, 'duration:', duration);
+      
       // Create session in database
       const { data: session, error: sessionError } = await supabase
         .from('sessions')
@@ -64,14 +66,24 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
         .select()
         .single();
 
-      if (sessionError) throw sessionError;
+      if (sessionError) {
+        console.error('Session creation error:', sessionError);
+        throw sessionError;
+      }
+
+      console.log('Session created:', session);
 
       // Load available games based on mode
       const { data: games, error: gamesError } = await supabase
         .from('games')
         .select('*');
 
-      if (gamesError) throw gamesError;
+      if (gamesError) {
+        console.error('Games loading error:', gamesError);
+        throw gamesError;
+      }
+
+      console.log('All games loaded:', games);
 
       // Filter games based on training mode
       let filteredGames = games;
@@ -86,6 +98,8 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
           return skills.comp && skills.comp > 0.5;
         });
       }
+
+      console.log('Filtered games for mode', mode, ':', filteredGames);
 
       // Shuffle games for variety
       const shuffledGames = filteredGames.sort(() => Math.random() - 0.5);
