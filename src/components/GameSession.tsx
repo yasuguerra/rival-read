@@ -51,7 +51,12 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
   }, []);
 
   const initializeSession = async () => {
-    if (!user) return;
+    console.log('initializeSession called');
+    
+    if (!user) {
+      console.log('No user found, returning');
+      return;
+    }
 
     try {
       console.log('Initializing session with mode:', mode, 'duration:', duration);
