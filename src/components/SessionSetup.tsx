@@ -168,8 +168,12 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
                 </p>
               </div>
               <Button 
-                onClick={handleStartSession}
+                onClick={(e) => {
+                  console.log('¡Empezar! button clicked!', e);
+                  handleStartSession();
+                }}
                 className="bg-gradient-success hover:shadow-glow-xp transition-all duration-300"
+                type="button"
               >
                 <Play className="w-4 h-4 mr-2" />
                 ¡Empezar!
