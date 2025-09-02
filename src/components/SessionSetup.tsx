@@ -47,10 +47,17 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
   const durations: Duration[] = [5, 10, 15, 30, 45, 60];
 
   const handleStartSession = () => {
+    console.log('Starting session with:', { selectedMode, selectedDuration });
     setGameStarted(true);
   };
 
+  console.log('SessionSetup render - gameStarted:', gameStarted);
+
   if (gameStarted) {
+    console.log('Rendering GameSession with:', { 
+      mode: selectedMode, 
+      duration: selectedDuration 
+    });
     return (
       <GameSession 
         mode={selectedMode}
