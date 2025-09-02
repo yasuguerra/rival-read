@@ -1,158 +1,359 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Target, Clock, Zap } from 'lucide-react';
+import { ArrowLeft, Play, RotateCcw, Target, Clock, Zap } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SchulteGameProps {
-  onComplete: (score: number, accuracy: number, durationSec: number) => void;
-  difficulty: number;
+  onComplete: (score: number, accuracy: number, duration: number) => void;
+  difficulty?: number;
+  onBack?: () => void;
 }
 
-export function SchulteGame({ onComplete, difficulty }: SchulteGameProps) {
-  const gridSize = Math.min(5 + Math.floor(difficulty / 2), 7); // 5x5 to 7x7
-  const totalNumbers = gridSize * gridSize;
-  
-  const [grid, setGrid] = useState<number[]>([]);
-  const [currentTarget, setCurrentTarget] = useState(1);
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [gameEnded, setGameEnded] = useState(false);
-  const [errors, setErrors] = useState(0);
-  const [elapsedTime, setElapsedTime] = useState(0);
+interface Cell {
+  id: number;
+  number: number;
+  position: { row: number; col: number };
+  found: boolean;
+}
 
-  // Generate shuffled grid
-  const generateGrid = useCallback(() => {
-    const numbers = Array.from({ length: totalNumbers }, (_, i) => i + 1);
-    // Fisher-Yates shuffle
+export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameProps) {
+  const { user } = useAuth();
+  const [level, setLevel] = useState(difficulty);
+  const [gridSize, setGridSize] = useState(5);
+  const [cells, setCells] = useState<Cell[]>([]);
+  const [currentTarget, setCurrentTarget] = useState(1);
+  const [gameStarted, setGameStarted] = useState(false);
+  const [gameCompleted, setGameCompleted] = useState(false);
+  const [errors, setErrors] = useState(0);
+  const [startTime, setStartTime] = useState<Date | null>(null);
+  const [timeLeft, setTimeLeft] = useState(60);
+  const [boardsCompleted, setBoardsCompleted] = useState(0);
+  const [totalXP, setTotalXP] = useState(0);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [foundNumbers, setFoundNumbers] = useState(0);
+  const [boardStartTime, setBoardStartTime] = useState<Date | null>(null);
+
+  // Load saved level on component mount
+  useEffect(() => {
+    loadSavedLevel();
+  }, [user]);
+
+  // Timer effect
+  useEffect(() => {
+    if (gameStarted && !gameCompleted) {
+      const timer = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            handleGameEnd();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+      intervalRef.current = timer;
+      return () => clearInterval(timer);
+    }
+  }, [gameStarted, gameCompleted]);
+
+  const loadSavedLevel = async () => {
+    if (!user) return;
+    
+    try {
+      const { data } = await supabase
+        .from('user_game_state')
+        .select('last_level')
+        .eq('user_id', user.id)
+        .eq('game_code', 'schulte')
+        .maybeSingle();
+      
+      if (data?.last_level) {
+        const savedLevel = data.last_level;
+        setLevel(savedLevel);
+        const newGridSize = Math.min(4 + savedLevel, 8); // 5x5 to 8x8
+        setGridSize(newGridSize);
+      }
+    } catch (error) {
+      console.error('Error loading saved level:', error);
+    }
+  };
+
+  const saveLevelProgress = async (newLevel: number) => {
+    if (!user) return;
+    
+    try {
+      await supabase
+        .from('user_game_state')
+        .upsert({
+          user_id: user.id,
+          game_code: 'schulte',
+          last_level: newLevel,
+          updated_at: new Date().toISOString()
+        });
+    } catch (error) {
+      console.error('Error saving level:', error);
+    }
+  };
+
+  const generateGrid = () => {
+    const totalCells = gridSize * gridSize;
+    const numbers = Array.from({ length: totalCells }, (_, i) => i + 1);
+    
+    // Shuffle the numbers
     for (let i = numbers.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
     }
-    return numbers;
-  }, [totalNumbers]);
+    
+    const newCells: Cell[] = numbers.map((number, index) => ({
+      id: index,
+      number,
+      position: {
+        row: Math.floor(index / gridSize),
+        col: index % gridSize
+      },
+      found: false
+    }));
+    
+    setCells(newCells);
+    setCurrentTarget(1);
+    setFoundNumbers(0);
+    setBoardStartTime(new Date());
+  };
 
-  // Initialize game
-  useEffect(() => {
-    setGrid(generateGrid());
-    setStartTime(new Date());
-  }, [generateGrid]);
-
-  // Timer effect
-  useEffect(() => {
-    if (!startTime || gameEnded) return;
-
-    const interval = setInterval(() => {
-      setElapsedTime(Math.floor((Date.now() - startTime.getTime()) / 1000));
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [startTime, gameEnded]);
-
-  const handleCellClick = (number: number) => {
-    if (gameEnded) return;
-
-    if (number === currentTarget) {
-      // Correct number
-      if (currentTarget === totalNumbers) {
-        // Game completed
-        const duration = Math.floor((Date.now() - startTime!.getTime()) / 1000);
-        const accuracy = Math.max(0, (totalNumbers - errors) / totalNumbers);
-        const score = Math.round(1000 / duration * accuracy);
-        
-        setGameEnded(true);
-        onComplete(score, accuracy, duration);
-      } else {
-        setCurrentTarget(currentTarget + 1);
+  const handleCellClick = (cellNumber: number) => {
+    if (!gameStarted || gameCompleted) return;
+    
+    if (cellNumber === currentTarget) {
+      // Correct number found
+      setCells(prev => prev.map(cell => 
+        cell.number === cellNumber ? { ...cell, found: true } : cell
+      ));
+      
+      const newFoundNumbers = foundNumbers + 1;
+      setFoundNumbers(newFoundNumbers);
+      setCurrentTarget(prev => prev + 1);
+      
+      // Check if grid is completed
+      if (newFoundNumbers === gridSize * gridSize) {
+        handleBoardComplete();
       }
     } else {
-      // Wrong number
-      setErrors(errors + 1);
+      // Wrong number clicked
+      setErrors(prev => prev + 1);
     }
   };
 
-  const progress = ((currentTarget - 1) / totalNumbers) * 100;
-  const accuracy = totalNumbers > 0 ? Math.max(0, (currentTarget - 1 - errors) / (currentTarget - 1)) * 100 : 100;
+  const handleBoardComplete = () => {
+    if (!boardStartTime) return;
+    
+    const boardTime = (Date.now() - boardStartTime.getTime()) / 1000;
+    const timeThreshold = Math.max(30 - level * 2, 15); // 30s to 15s threshold
+    
+    // Level up if completed quickly with 100% accuracy
+    if (boardTime < timeThreshold && errors === 0) {
+      const newLevel = Math.min(level + 1, 10); // Cap at level 10
+      setLevel(newLevel);
+      const newGridSize = Math.min(4 + newLevel, 8); // 5x5 to 8x8
+      setGridSize(newGridSize);
+      saveLevelProgress(newLevel);
+    }
+    
+    setBoardsCompleted(prev => prev + 1);
+    
+    // Calculate XP for this board
+    const baseXP = 10;
+    const levelBonus = level * 2;
+    const speedBonus = Math.max(0, Math.floor((timeThreshold - boardTime) * 2));
+    const boardXP = baseXP + levelBonus + speedBonus;
+    setTotalXP(prev => prev + boardXP);
+    
+    // Generate new grid if time remaining
+    if (timeLeft > 5) {
+      generateGrid();
+    } else {
+      setGameCompleted(true);
+      handleGameEnd();
+    }
+  };
+
+  const handleGameEnd = () => {
+    if (!startTime) return;
+    
+    setGameCompleted(true);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    
+    const duration = 60 - timeLeft; // Total time played
+    const accuracy = boardsCompleted > 0 ? 1.0 : foundNumbers / (gridSize * gridSize);
+    const score = totalXP;
+    
+    onComplete(score, accuracy, duration);
+  };
+
+  const startGame = () => {
+    generateGrid();
+    setGameStarted(true);
+    setGameCompleted(false);
+    setErrors(0);
+    setStartTime(new Date());
+    setTimeLeft(60);
+    setFoundNumbers(0);
+    setBoardsCompleted(0);
+    setTotalXP(0);
+  };
+
+  const resetGame = () => {
+    setGameStarted(false);
+    setGameCompleted(false);
+    setErrors(0);
+    setStartTime(null);
+    setTimeLeft(60);
+    setFoundNumbers(0);
+    setBoardsCompleted(0);
+    setTotalXP(0);
+    setBoardStartTime(null);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+  };
 
   return (
-    <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Target className="w-5 h-5 text-primary" />
-          Tabla de Schulte {gridSize}×{gridSize}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Instructions */}
-        <div className="text-center space-y-2">
-          <p className="text-muted-foreground">
-            Encuentra los números en orden del 1 al {totalNumbers}
-          </p>
-          <div className="flex justify-center gap-4">
-            <Badge variant="outline" className="text-lg">
-              <Target className="w-4 h-4 mr-1" />
-              Buscar: {currentTarget}
-            </Badge>
-            <Badge variant="outline">
-              <Clock className="w-4 h-4 mr-1" />
-              {elapsedTime}s
-            </Badge>
-            <Badge variant="outline">
-              <Zap className="w-4 h-4 mr-1" />
-              {Math.round(accuracy)}%
-            </Badge>
-          </div>
-        </div>
-
-        {/* Progress */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>Progreso</span>
-            <span>{currentTarget - 1} / {totalNumbers}</span>
-          </div>
-          <Progress value={progress} className="h-2" />
-        </div>
-
-        {/* Game Grid */}
-        <div className="flex justify-center">
-          <div 
-            className="grid gap-2 p-4 rounded-lg bg-muted/20"
-            style={{
-              gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
-              maxWidth: '400px',
-              aspectRatio: '1'
-            }}
-          >
-            {grid.map((number, index) => (
-              <Button
-                key={index}
-                variant="outline"
-                className={`
-                  aspect-square text-lg font-bold transition-all duration-200
-                  ${number === currentTarget 
-                    ? 'border-primary bg-primary/10 hover:bg-primary/20' 
-                    : 'hover:bg-secondary/50'
-                  }
-                  ${number < currentTarget 
-                    ? 'bg-success/20 border-success/50 text-success-foreground opacity-50' 
-                    : ''
-                  }
-                `}
-                onClick={() => handleCellClick(number)}
-                disabled={gameEnded}
-              >
-                {number}
+    <div className="min-h-screen bg-gradient-bg p-4">
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {onBack && (
+              <Button variant="outline" size="icon" onClick={onBack}>
+                <ArrowLeft className="w-4 h-4" />
               </Button>
-            ))}
+            )}
+            <div>
+              <h1 className="text-2xl font-bold">Tabla de Schulte</h1>
+              <p className="text-sm text-muted-foreground">Nivel {level} • Tablero {gridSize}×{gridSize}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            {gameStarted && !gameCompleted && (
+              <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
+                {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Game Stats */}
+        {gameStarted && (
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardContent className="p-4">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex gap-6">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Objetivo</p>
+                    <p className="text-2xl font-bold text-primary">{currentTarget}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Errores</p>
+                    <p className="text-2xl font-bold text-destructive">{errors}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Tableros</p>
+                    <p className="text-2xl font-bold text-success">{boardsCompleted}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">XP</p>
+                    <p className="text-2xl font-bold text-accent">{totalXP}</p>
+                  </div>
+                </div>
+              </div>
+              <Progress value={(foundNumbers / (gridSize * gridSize)) * 100} className="h-2" />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Game Area */}
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardContent className="p-6">
+            {!gameStarted ? (
+              <div className="text-center space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold mb-2">Encuentra los números en orden</h2>
+                  <p className="text-muted-foreground">
+                    Toca los números del 1 al {gridSize * gridSize} en orden secuencial.
+                    Mantén la mirada en el centro y usa tu visión periférica.
+                  </p>
+                </div>
+                <Button 
+                  onClick={startGame}
+                  className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Comenzar Juego
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div 
+                  className="grid gap-2 mx-auto"
+                  style={{
+                    gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
+                    maxWidth: '400px'
+                  }}
+                >
+                  {cells.map((cell) => (
+                    <button
+                      key={cell.id}
+                      onClick={() => handleCellClick(cell.number)}
+                      className={`
+                        aspect-square border-2 rounded-lg font-bold transition-all duration-200 hover:scale-105
+                        min-h-[48px] min-w-[48px] touch-manipulation
+                        ${gridSize <= 5 ? 'text-xl' : gridSize <= 6 ? 'text-lg' : 'text-base'}
+                        ${cell.found 
+                          ? 'bg-success/20 border-success text-success' 
+                          : cell.number === currentTarget
+                            ? 'bg-primary/20 border-primary text-primary shadow-glow-primary'
+                            : 'bg-card border-border hover:border-primary/50'
+                        }
+                      `}
+                      disabled={cell.found}
+                    >
+                      {cell.number}
+                    </button>
+                  ))}
+                </div>
+                
+                <div className="flex justify-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={resetGame}
+                    className="border-border/50"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Reiniciar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Tips */}
-        <div className="text-center text-sm text-muted-foreground space-y-1">
-          <p>💡 Mantén la mirada en el centro y usa tu visión periférica</p>
-          <p>⚡ No muevas los ojos demasiado, percibe todo el campo visual</p>
-        </div>
-      </CardContent>
-    </Card>
+        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+          <CardContent className="p-4">
+            <div className="text-center text-sm text-muted-foreground space-y-1">
+              <p>💡 Mantén la mirada en el centro y usa tu visión periférica</p>
+              <p>⚡ No muevas los ojos demasiado, percibe todo el campo visual</p>
+              <p>🎯 La dificultad aumenta automáticamente con tu rendimiento</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
   );
 }

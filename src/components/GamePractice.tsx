@@ -96,7 +96,11 @@ export function GamePractice({ onBack }: GamePracticeProps) {
         setGameStarted(false);
         setSelectedGame(null);
       },
-      difficulty: 1
+      difficulty: 1,
+      onBack: () => {
+        setGameStarted(false);
+        setSelectedGame(null);
+      }
     };
 
     switch (selectedGame.code) {

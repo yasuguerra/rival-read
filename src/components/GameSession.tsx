@@ -268,14 +268,15 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
   const renderCurrentGame = () => {
     if (!currentGame || !isGameActive) return null;
 
+    const gameProps = {
+      onComplete: handleGameComplete,
+      difficulty: 1,
+      onBack: () => setIsGameActive(false)
+    };
+
     switch (currentGame.code) {
       case 'schulte':
-        return (
-          <SchulteGame
-            onComplete={handleGameComplete}
-            difficulty={1}
-          />
-        );
+        return <SchulteGame {...gameProps} />;
       case 'letter_search':
         return (
           <LetterSearchGame
