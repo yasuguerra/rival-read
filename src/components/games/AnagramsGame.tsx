@@ -30,6 +30,15 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
   const [startTime, setStartTime] = useState<Date | null>(null);
   // Used to force remount of option buttons every round so no residual styles persist
   const [roundId, setRoundId] = useState(0);
+  
+  // When round changes, ensure no element keeps focus (mobile purple highlight)
+  useEffect(() => {
+    setTimeout(() => {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    }, 0);
+  }, [roundId]);
 
   const wordsByLength = {
     4: ['casa', 'mesa', 'agua', 'luna', 'gato', 'perro', 'libro', 'papel', 'verde', 'azul', 'rojo', 'amor'],
@@ -307,25 +316,26 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                 <div className="space-y-2">
                   <h4 className="text-center font-semibold">Selecciona el anagrama correcto:</h4>
                   <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-          {options.map((option, index) => (
-                      <Button
-            key={`${roundId}-${index}`}
-                        variant="outline"
-                        className={`h-12 text-lg font-medium transition-all duration-200 touch-manipulation
-                          ${feedback ? (
-                            option === correctAnswer
-                              ? 'bg-success/20 border-success text-success'
-                              : index === selectedIndex && feedback === 'incorrect'
-                                ? 'bg-destructive/20 border-destructive text-destructive'
-                                : 'opacity-60'
-                          ) : ''}
-                        `}
-                        onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswer(option, index); }}
-                        disabled={!!feedback}
-                      >
-                        {option}
-                      </Button>
-                    ))}
+                    {options.map((option, index) => {
+                      const stateClasses = feedback
+                        ? (option === correctAnswer
+                            ? 'bg-success/20 border-success text-success'
+                            : index === selectedIndex && feedback === 'incorrect'
+                              ? 'bg-destructive/20 border-destructive text-destructive'
+                              : 'opacity-60')
+                        : 'bg-background border-border/40 text-foreground hover:bg-muted/40';
+                      return (
+                        <Button
+                          key={`${roundId}-${index}`}
+                          variant="outline"
+                          className={`h-12 text-lg font-medium transition-all duration-200 touch-manipulation focus-visible:outline-none focus-visible:ring-0 ${stateClasses}`}
+                          onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswer(option, index); }}
+                          disabled={!!feedback}
+                        >
+                          {option}
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
 

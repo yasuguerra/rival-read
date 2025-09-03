@@ -14,7 +14,8 @@ interface LetterSearchGameProps {
 export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearchGameProps) {
   const gridSize = Math.min(8 + Math.floor(difficulty), 12); // 8x8 to 12x12
   const targetCount = Math.min(3 + Math.floor(difficulty / 2), 6); // 3-6 targets
-  const gameTimeLimit = Math.max(30 - difficulty * 2, 15); // 30s to 15s
+  // New: enforce at least 60s duration (before was 30→15). We keep a simple scaling above 60 if needed.
+  const gameTimeLimit = 60; // fixed 1 minute per requirement (can later scale with difficulty)
   
   const [grid, setGrid] = useState<string[]>([]);
   const [targetLetters, setTargetLetters] = useState<string[]>([]);
@@ -23,6 +24,8 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [timeLeft, setTimeLeft] = useState(gameTimeLimit);
   const [gameEnded, setGameEnded] = useState(false);
+  // Incremental score that grows as user finds correct letters
+  const [score, setScore] = useState(0);
 
   const generateGame = useCallback(() => {
     // Generate random letters for grid
@@ -91,6 +94,8 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
       const newFoundTargets = new Set(foundTargets);
       newFoundTargets.add(index);
       setFoundTargets(newFoundTargets);
+      // Increment score immediately (100 pts per correct target like previous final calc base)
+      setScore(prev => prev + 100);
       
       // Check if all targets found
       const totalTargetsInGrid = grid.filter(cell => targetLetters.includes(cell)).length;
@@ -109,10 +114,11 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
     const duration = Math.floor((Date.now() - startTime!.getTime()) / 1000);
     const totalTargetsInGrid = grid.filter(cell => targetLetters.includes(cell)).length;
     const accuracy = totalTargetsInGrid > 0 ? foundTargets.size / totalTargetsInGrid : 0;
-    const score = Math.round(foundTargets.size * 100 + (timeLeft * 5) - (wrongClicks * 10));
+  // Final score builds on incremental base plus time bonus minus penalties
+  const finalScore = Math.max(0, Math.round(score + (timeLeft * 5) - (wrongClicks * 10)));
     
     setGameEnded(true);
-    onComplete(Math.max(0, score), accuracy, duration);
+  onComplete(finalScore, accuracy, duration);
   };
 
   const progress = grid.length > 0 ? (foundTargets.size / grid.filter(cell => targetLetters.includes(cell)).length) * 100 : 0;
@@ -149,7 +155,11 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
         </div>
 
         {/* Stats */}
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-4 flex-wrap">
+          <Badge variant="outline">
+            <Zap className="w-4 h-4 mr-1" />
+            Puntos: {score}
+          </Badge>
           <Badge variant="outline">
             <Target className="w-4 h-4 mr-1" />
             {foundTargets.size} / {totalTargetsInGrid}
@@ -159,7 +169,6 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
             {timeLeft}s
           </Badge>
           <Badge variant="outline">
-            <Zap className="w-4 h-4 mr-1" />
             Errores: {wrongClicks}
           </Badge>
         </div>
