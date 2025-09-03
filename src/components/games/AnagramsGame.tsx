@@ -28,6 +28,8 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [roundsCompleted, setRoundsCompleted] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
+  // Used to force remount of option buttons every round so no residual styles persist
+  const [roundId, setRoundId] = useState(0);
 
   const wordsByLength = {
     4: ['casa', 'mesa', 'agua', 'luna', 'gato', 'perro', 'libro', 'papel', 'verde', 'azul', 'rojo', 'amor'],
@@ -148,6 +150,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
     setCorrectAnswer(selectedWord);
     setFeedback(null);
     setSelectedIndex(null);
+  setRoundId(prev => prev + 1); // advance round key
   };
 
   const handleAnswer = (selectedWord: string, idx?: number) => {
@@ -304,9 +307,9 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                 <div className="space-y-2">
                   <h4 className="text-center font-semibold">Selecciona el anagrama correcto:</h4>
                   <div className="grid grid-cols-2 gap-3 max-w-md mx-auto">
-                    {options.map((option, index) => (
+          {options.map((option, index) => (
                       <Button
-                        key={index}
+            key={`${roundId}-${index}`}
                         variant="outline"
                         className={`h-12 text-lg font-medium transition-all duration-200 touch-manipulation
                           ${feedback ? (
