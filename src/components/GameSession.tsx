@@ -27,6 +27,7 @@ interface GameSessionProps {
   mode: 'speed' | 'comp' | 'combo';
   duration: number;
   onBack: () => void;
+  resumeSessionId?: string;
 }
 
 interface Game {
@@ -48,7 +49,7 @@ interface SessionState {
   gamesCompleted: number;
 }
 
-export function GameSession({ mode, duration, onBack }: GameSessionProps) {
+export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSessionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   
@@ -62,9 +63,13 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
   useEffect(() => {
     console.log('GameSession useEffect triggered, user:', user);
     if (user) {
-      initializeSession();
+      if (resumeSessionId) {
+        resumeExistingSession(resumeSessionId);
+      } else {
+        initializeSession();
+      }
     }
-  }, [user]);
+  }, [user, resumeSessionId]);
 
   const initializeSession = async () => {
     console.log('initializeSession called');
@@ -77,7 +82,7 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
     try {
       console.log('Initializing session with mode:', mode, 'duration:', duration);
       
-      // Create session in database
+      // Create new session in database
       const { data: session, error: sessionError } = await supabase
         .from('sessions')
         .insert({
@@ -168,6 +173,46 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
     }
   };
 
+  const resumeExistingSession = async (sessionId: string) => {
+    try {
+      const { data: session } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .single();
+      if (!session) return initializeSession();
+
+      // Rebuild games list fresh (cannot restore exact order without persisted list)
+      const { data: games } = await supabase.from('games').select('*');
+      const implementedGameCodes = [
+        'schulte','letter_search','word_race','number_memory','word_race_rsvp','word_chain','twin_words','even_odd','anagrams','find_number','visual_field','find_words','text_scanning','reading_accelerator','neuron_accelerator'
+      ];
+      const availableGames = (games||[]).filter(g=>implementedGameCodes.includes(g.code));
+      const shuffledGames = availableGames.sort(() => Math.random() - 0.5);
+
+      const startTime = new Date(session.started_at);
+      const endTime = new Date(startTime.getTime() + session.duration_min * 60 * 1000);
+
+      const existingState: SessionState = {
+        sessionId: session.id,
+        startTime,
+        endTime,
+        elapsedMinutes: (Date.now() - startTime.getTime()) / 60000,
+        currentGameIndex: 0,
+        games: shuffledGames,
+        totalXP: 0,
+        gamesCompleted: 0
+      };
+      setSessionState(existingState);
+      setCurrentGame(shuffledGames[0] || null);
+      setLoading(false);
+      toast({ title: 'Reanudando sesión', description: 'Continuando tu entrenamiento de hoy.' });
+    } catch (e) {
+      console.error('Error resuming session', e);
+      initializeSession();
+    }
+  };
+
   const handleGameComplete = async (score: number, accuracy: number, durationSec: number) => {
     if (!sessionState || !currentGame) return;
 
@@ -206,7 +251,7 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
           }
         });
 
-      const updatedState = {
+  const updatedState = {
         ...sessionState,
         currentGameIndex: sessionState.currentGameIndex + 1,
         totalXP: sessionState.totalXP + totalGameXP,
@@ -220,7 +265,7 @@ export function GameSession({ mode, duration, onBack }: GameSessionProps) {
       const shouldEnd = now >= sessionState.endTime || 
                        updatedState.currentGameIndex >= sessionState.games.length;
 
-      if (shouldEnd) {
+  if (shouldEnd) {
         endSession(updatedState);
       } else {
         // Move to next game

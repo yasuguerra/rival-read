@@ -167,11 +167,11 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     const boardTime = (Date.now() - boardStartTime.getTime()) / 1000;
     const timeThreshold = Math.max(30 - level * 2, 15); // 30s to 15s threshold
     
-    // Level up if completed quickly with 100% accuracy
+    // Level up if completed quickly with 100% accuracy (per board)
     if (boardTime < timeThreshold && errors === 0) {
-  const newLevel = Math.min(level + 1, 10); // Cap at level 10
-  setLevel(newLevel);
-  setGridSize(computeGridSize(newLevel));
+      const newLevel = Math.min(level + 1, 10); // Cap at level 10
+      setLevel(newLevel);
+      setGridSize(computeGridSize(newLevel));
       saveLevelProgress(newLevel);
       trackEvent(user?.id, 'level_up', { game: 'schulte', newLevel });
     }
@@ -185,12 +185,13 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
   setTotalXP(prev => prev + boardXP);
   awardXp(user?.id, boardXP, 'game', { game: 'schulte', boardTime, level, errors });
     
-    // Generate new grid if time remaining
-    if (timeLeft > 5) {
-      // simple slight delay to allow user to perceive completion
+    // Reset per-board errors for next board
+    setErrors(0);
+    // Always attempt to generate next board if time remains > 0
+    if (timeLeft > 0) {
       setTimeout(() => {
         if (!gameCompleted) generateGrid();
-      }, 120);
+      }, 150);
     } else {
       setGameCompleted(true);
       handleGameEnd();
@@ -362,6 +363,15 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
                     </button>
                   ))}
                 </div>
+                {gameCompleted && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                    <div className="text-center space-y-4 p-6 rounded-lg border bg-card/90">
+                      <h2 className="text-xl font-semibold">Tiempo terminado</h2>
+                      <p className="text-sm text-muted-foreground">Tableros completados: {boardsCompleted}</p>
+                      <Button onClick={startGame} className="bg-gradient-primary">Reintentar</Button>
+                    </div>
+                  </div>
+                )}
                 
                 <div className="flex justify-center gap-2">
                   <Button 

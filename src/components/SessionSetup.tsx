@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Zap, Brain, Target, Clock, Play } from 'lucide-react';
 import { GameSession } from './GameSession';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SessionSetupProps {
   onBack: () => void;
@@ -16,6 +18,32 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
   const [selectedMode, setSelectedMode] = useState<TrainingMode>('combo');
   const [selectedDuration, setSelectedDuration] = useState<Duration>(10);
   const [gameStarted, setGameStarted] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [activeSession, setActiveSession] = useState<any | null>(null);
+  const { user } = useAuth();
+
+  // Look for active session (no ended_at) today
+  useEffect(() => {
+    const loadActive = async () => {
+      if (!user) return;
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .is('ended_at', null)
+        .order('started_at', { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        const session = data[0];
+        if (session.started_at.startsWith(today)) {
+          setActiveSession(session);
+          setSelectedDuration(session.duration_min as Duration);
+        }
+      }
+    };
+    loadActive();
+  }, [user]);
 
   const modes = [
     {
@@ -63,6 +91,7 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
       <GameSession 
         mode={selectedMode}
         duration={selectedDuration}
+        resumeSessionId={resuming ? activeSession?.id : undefined}
         onBack={() => {
           console.log('Going back from GameSession');
           setGameStarted(false);
@@ -167,17 +196,29 @@ export function SessionSetup({ onBack }: SessionSetupProps) {
                   {modes.find(m => m.id === selectedMode)?.title} • {selectedDuration} minutos
                 </p>
               </div>
-              <Button 
-                onClick={(e) => {
-                  console.log('¡Empezar! button clicked!', e);
-                  handleStartSession();
-                }}
-                className="bg-gradient-success hover:shadow-glow-xp transition-all duration-300"
-                type="button"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                ¡Empezar!
-              </Button>
+              <div className="flex gap-2">
+                {activeSession && (
+                  <Button
+                    onClick={() => { setResuming(true); setGameStarted(true); }}
+                    variant="outline"
+                    type="button"
+                  >
+                    Reanudar
+                  </Button>
+                )}
+                <Button 
+                  onClick={(e) => {
+                    console.log('¡Empezar! button clicked!', e);
+                    setResuming(false);
+                    handleStartSession();
+                  }}
+                  className="bg-gradient-success hover:shadow-glow-xp transition-all duration-300"
+                  type="button"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  {activeSession ? 'Nueva Sesión' : '¡Empezar!'}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

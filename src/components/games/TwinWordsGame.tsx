@@ -15,8 +15,9 @@ interface TwinWordsGameProps {
 interface WordPair {
   word1: string;
   word2: string;
-  isTarget: boolean; // true if words are different (target), false if identical
+  isTarget: boolean; // true => usuario debe pulsar (palabras diferentes)
   found: boolean;
+  flashError?: boolean; // feedback visual temporal para errores
 }
 
 export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsGameProps) {
@@ -34,7 +35,26 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     "cielo", "luna", "sol", "mar", "río", "monte", "valle", "flor",
     "papel", "lapiz", "coche", "avion", "barco", "tren", "musica", "baile",
     "amor", "paz", "guerra", "tiempo", "espacio", "vida", "muerte", "salud",
-    "canion", "nino", "anio", "senor", "accion", "vision"
+    "canion", "nino", "anio", "senor", "accion", "vision", "salsa", "canon", "esta", "está", "selso", "cazon", "casona"
+  ];
+
+  // Pares de confusión (near twins) -> cada subarray: [correcta, variante similar distinta]
+  const confusingPairs: [string,string][] = [
+    ['salsa','selso'],
+    ['canon','cañon'],
+    ['canon','canón'],
+    ['esta','está'],
+    ['accion','acción'],
+    ['nino','niño'],
+    ['anio','año'],
+    ['senor','señor'],
+    ['vision','visión'],
+    ['lapiz','lápiz'],
+    ['papel','papél'],
+    ['casa','caza'],
+    ['río','rio'],
+    ['sol','sól'],
+    ['salud','salúd']
   ];
 
   // Normalize Spanish accents and ñ for comparison
@@ -44,34 +64,8 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     .replace(/\p{Diacritic}/gu, '')
     .replace(/ñ/g, 'n');
 
-  // Simple similarity (Levenshtein distance up to 1 allowed)
-  const isNearMatch = (a: string, b: string) => {
-    const na = normalize(a);
-    const nb = normalize(b);
-    if (na === nb) return true;
-    // Allow single substitution/insertion/deletion
-    const lenA = na.length, lenB = nb.length;
-    if (Math.abs(lenA - lenB) > 1) return false;
-    let i=0,j=0,diff=0;
-    while (i < lenA && j < lenB) {
-      if (na[i] === nb[j]) { i++; j++; continue; }
-      diff++;
-      if (diff > 1) return false;
-      if (lenA > lenB) i++; else if (lenB > lenA) j++; else { i++; j++; }
-    }
-    if (i < lenA || j < lenB) diff++;
-    return diff <= 1;
-  };
-
-  // Mutate a word slightly (accent removal, swap, vowel change)
-  const mutateWord = (w: string) => {
-    const variants: string[] = [];
-    variants.push(w.replace(/a/g,'á').replace(/o/g,'ó')); // add accents
-    if (w.length > 3) variants.push(w.slice(0,-1)); // drop last letter
-    if (w.length > 4) variants.push(w.slice(0,2)+w[3]+w[2]+w.slice(4)); // swap middle
-    variants.push(w.replace(/n/g,'ñ'));
-    return variants.find(v => normalize(v) !== normalize(w)) || w;
-  };
+  // Helper para mezclar
+  const shuffle = <T,>(arr: T[]) => arr.sort(() => Math.random() - 0.5);
 
   // Load saved level on component mount
   useEffect(() => {
@@ -127,45 +121,38 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
   };
 
   const generateWordPairs = () => {
-    const gridSize = Math.min(4 + Math.floor(level / 2), 7); // 4x4 to 7x7
-    const totalPairs = gridSize * 2; // Each row has 2 words
-    const targetPairs = Math.ceil(totalPairs * 0.4); // 40% are different pairs (targets)
-    
-    const shuffledWords = [...wordsList].sort(() => Math.random() - 0.5);
+  const gridSize = Math.min(4 + Math.floor(level / 2), 10); // crecer hasta 10
+  const totalPairs = Math.min(gridSize * 2, 100); // limite duro de 100 pares visibles
+    const targetPairs = Math.ceil(totalPairs * 0.4); // 40% objetivos
+
+    const words = shuffle([...wordsList]);
     const pairs: WordPair[] = [];
-    
-    // Create target pairs (near but not identical / or different)
+
+    // Seleccionar primero pares de confusión para que sean objetivos difíciles
+    const shuffledConfusing = shuffle([...confusingPairs]);
     for (let i = 0; i < targetPairs; i++) {
-      const base = shuffledWords[i];
-      const variant = mutateWord(base);
-      // Ensure variant is considered different visually but near-match logic treats them separately
-      const w1 = base;
-      const w2 = variant === base ? shuffledWords[i + targetPairs] : variant;
-      pairs.push({
-        word1: w1,
-        word2: w2,
-        isTarget: !isNearMatch(w1, w2), // mark as target only if nearMatch returns false
-        found: false
-      });
+      if (i < shuffledConfusing.length) {
+        const [a,b] = shuffledConfusing[i];
+        pairs.push({ word1: a, word2: b, isTarget: true, found: false });
+      } else {
+        let w1 = words[i % words.length];
+        let w2 = words[(i + level + 3) % words.length];
+        if (normalize(w1) === normalize(w2)) {
+          w2 = words.find(w => normalize(w) !== normalize(w1)) || w2;
+        }
+        pairs.push({ word1: w1, word2: w2, isTarget: true, found: false });
+      }
     }
-    
-    // Create non-target pairs (identical words)
-    const remainingPairs = totalPairs - targetPairs;
-    for (let i = 0; i < remainingPairs; i++) {
-      const word = shuffledWords[targetPairs + i];
-      const nearVariant = mutateWord(word);
-      // Non-target: treat near variants as identical for user (force them equal)
-      pairs.push({
-        word1: word,
-        word2: nearVariant,
-        isTarget: false,
-        found: false
-      });
+
+    // Pares no objetivo: palabras idénticas
+    for (let i = targetPairs; i < totalPairs; i++) {
+      // Para hacerlo menos trivial, a veces misma palabra vs variante acentuada (pero usuario NO debe pulsar)
+      const base = words[i % words.length];
+      const variant = base.normalize('NFD').includes('\u0301') ? base.replace(/\u0301/g,'') : base; // simple fallback
+      pairs.push({ word1: base, word2: variant, isTarget: variant !== base ? false : false, found: false });
     }
-    
-    // Shuffle the pairs
-    pairs.sort(() => Math.random() - 0.5);
-    
+
+    shuffle(pairs);
     setWordPairs(pairs);
     setPairsRemaining(targetPairs);
   };
@@ -196,9 +183,14 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
         return newRemaining;
       });
   } else {
-      // Wrong - this is an identical pair
+      // Wrong - par idéntico pulsado
       setErrors(prev => prev + 1);
       setScore(prev => Math.max(0, prev - 5));
+      // flash visual
+      setWordPairs(prev => prev.map((p, i) => i === pairIndex ? { ...p, flashError: true } : p));
+      setTimeout(() => {
+        setWordPairs(prev => prev.map((p, i) => i === pairIndex ? { ...p, flashError: false } : p));
+      }, 350);
     }
   };
 
@@ -291,17 +283,23 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
                       onClick={() => handlePairClick(index)}
                       className={`
                         p-4 rounded-lg border-2 transition-all duration-200 min-h-[60px]
-                        flex justify-between items-center touch-manipulation
+                        flex justify-between items-center touch-manipulation relative
                         ${pair.found
                           ? 'bg-success/20 border-success text-success'
-                          : 'bg-card border-border hover:border-primary/50'
+                          : pair.flashError
+                            ? 'bg-destructive/10 border-destructive animate-pulse'
+                            : 'bg-card border-border hover:border-primary/50'
                         }
                       `}
                       disabled={pair.found}
+                      aria-pressed={pair.found}
                     >
                       <span className="font-medium">{pair.word1}</span>
                       <span className="text-2xl">↔</span>
                       <span className="font-medium">{pair.word2}</span>
+                      {pair.isTarget && !pair.found && (
+                        <span className="sr-only">Par diferente seleccionable</span>
+                      )}
                     </button>
                   ))}
                 </div>

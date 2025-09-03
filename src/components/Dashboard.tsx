@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { 
   Brain, 
   Zap, 
@@ -18,130 +17,64 @@ import {
   LogOut
 } from 'lucide-react';
 import { RivalAvatar } from './RivalAvatar';
-import { SessionSetup } from './SessionSetup';
-import { GamePractice } from './GamePractice';
+import { useQuery } from '@tanstack/react-query';
+import { fetchDashboardStats, DashboardStats } from '@/services/stats';
+import { Suspense, lazy } from 'react';
+const SessionSetup = lazy(() => import('./SessionSetup').then(m => ({ default: m.SessionSetup })));
+const GamePractice = lazy(() => import('./GamePractice').then(m => ({ default: m.GamePractice })));
 import { TextUploadModal } from './TextUploadModal';
 import { SettingsModal } from './SettingsModal.tsx';
 import { useNavigate } from 'react-router-dom';
 
-interface UserStats {
-  totalXP: number;
-  streak: number;
-  todayGoal: number;
-  todayProgress: number;
-  lastWPM: number;
-  lastComprehension: number;
-  rivalXP: number;
-}
-
 export function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
-  const [stats, setStats] = useState<UserStats>({
-    totalXP: 0,
-    streak: 0,
-    todayGoal: 10,
-    todayProgress: 0,
-    lastWPM: 0,
-    lastComprehension: 0,
-    rivalXP: 0
-  });
   const [showSessionSetup, setShowSessionSetup] = useState(false);
   const [showGamePractice, setShowGamePractice] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const { data: stats, isLoading, isError, refetch } = useQuery<DashboardStats | undefined>({
+    queryKey: ['dashboardStats', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return undefined;
+      return fetchDashboardStats(user.id);
+    },
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    loadUserStats();
-  }, [user]);
-
-  const loadUserStats = async () => {
-    if (!user) return;
-    
-    try {
-      // Load user goals
-      const { data: goals } = await supabase
-        .from('goals')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('active', true)
-        .single();
-
-      // Load user XP
-      const { data: xpData } = await supabase
-        .from('xp_ledger')
-        .select('delta')
-        .eq('user_id', user.id);
-
-      const totalXP = xpData?.reduce((sum, entry) => sum + entry.delta, 0) || 0;
-
-      // Load streak
-      const { data: streakData } = await supabase
-        .from('streaks')
-        .select('count')
-        .eq('user_id', user.id)
-        .single();
-
-      // Load today's sessions
-      const today = new Date().toISOString().split('T')[0];
-      const { data: todaySessions } = await supabase
-        .from('sessions')
-        .select('duration_min')
-        .eq('user_id', user.id)
-        .gte('started_at', `${today}T00:00:00.000Z`)
-        .lt('started_at', `${today}T23:59:59.999Z`);
-
-      const todayProgress = todaySessions?.reduce((sum, session) => sum + session.duration_min, 0) || 0;
-
-      // Load latest reading test
-      const { data: latestTest } = await supabase
-        .from('reading_tests')
-        .select('wpm, comp_pct')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      // Load rival XP
-      const { data: rivalState } = await supabase
-        .from('rival_states')
-        .select('xp_accum')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .single();
-
-      setStats({
-        totalXP,
-        streak: streakData?.count || 0,
-        todayGoal: goals?.minutes_daily || 10,
-        todayProgress,
-        lastWPM: latestTest?.wpm || 0,
-        lastComprehension: latestTest?.comp_pct || 0,
-        rivalXP: rivalState?.xp_accum || 0
-      });
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const progressPercentage = Math.min((stats.todayProgress / stats.todayGoal) * 100, 100);
-  const isGoalMet = stats.todayProgress >= stats.todayGoal;
-  const isRivalWinning = stats.rivalXP > stats.totalXP;
+  const progressPercentage = stats ? Math.min((stats.todayProgressMin / stats.todayGoal) * 100, 100) : 0;
+  const isGoalMet = stats ? stats.todayProgressMin >= stats.todayGoal : false;
+  const isRivalWinning = stats ? stats.rivalXPToday > stats.userXPToday : false;
 
   if (showSessionSetup) {
-    return <SessionSetup onBack={() => setShowSessionSetup(false)} />;
+    return (
+      <Suspense fallback={<div className="p-10 text-center text-muted-foreground">Cargando módulo de sesión...</div>}>
+        <SessionSetup onBack={() => setShowSessionSetup(false)} />
+      </Suspense>
+    );
   }
 
   if (showGamePractice) {
-    return <GamePractice onBack={() => setShowGamePractice(false)} />;
+    return (
+      <Suspense fallback={<div className="p-10 text-center text-muted-foreground">Cargando práctica...</div>}>
+        <GamePractice onBack={() => setShowGamePractice(false)} />
+      </Suspense>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gradient-bg p-4">
       <div className="max-w-4xl mx-auto space-y-6">
+        {/* Loading / Error States */}
+        {isLoading && (
+          <div className="text-center py-10 text-muted-foreground">Cargando estadísticas...</div>
+        )}
+        {isError && (
+          <div className="text-center py-10">
+            <p className="text-destructive mb-4">No se pudieron cargar las estadísticas.</p>
+            <Button onClick={() => refetch()}>Reintentar</Button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
@@ -168,18 +101,18 @@ export function Dashboard() {
                 Meta de Hoy
               </CardTitle>
               <CardDescription>
-                {stats.todayProgress} / {stats.todayGoal} minutos
+                {stats?.todayProgressMin ?? 0} / {stats?.todayGoal ?? 0} minutos
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Progress value={progressPercentage} className="h-3" />
               <div className="flex justify-between items-center">
                 <Badge variant={isGoalMet ? "default" : "secondary"} className="bg-gradient-success">
-                  {isGoalMet ? '¡Meta Cumplida!' : `${stats.todayGoal - stats.todayProgress} min restantes`}
+                  {isGoalMet ? '¡Meta Cumplida!' : `${(stats ? Math.max(stats.todayGoal - stats.todayProgressMin, 0) : 0)} min restantes`}
                 </Badge>
                 <div className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Flame className="w-4 h-4 text-orange-500" />
-                  {stats.streak} días
+                  {stats?.streak ?? 0} días
                 </div>
               </div>
             </CardContent>
@@ -193,18 +126,18 @@ export function Dashboard() {
                 Tu Rival IA
               </CardTitle>
               <CardDescription>
-                {isRivalWinning ? '¡Te está ganando!' : 'Vas ganando por ahora...'}
+                {stats ? (isRivalWinning ? '¡Te está ganando!' : 'Vas ganando por ahora...') : '---'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <RivalAvatar size="lg" />
                 <div className="text-right">
-                  <div className="text-2xl font-bold text-rival-primary">{Math.round(stats.rivalXP)} XP</div>
-                  <div className="text-sm text-muted-foreground">vs {Math.round(stats.totalXP)} tuyos</div>
+                  <div className="text-2xl font-bold text-rival-primary">{Math.round(stats?.rivalXPToday || 0)} XP</div>
+                  <div className="text-sm text-muted-foreground">vs {Math.round(stats?.userXPToday || 0)} tuyos (hoy)</div>
                 </div>
               </div>
-              {isRivalWinning && (
+              {stats && isRivalWinning && (
                 <Badge variant="destructive" className="w-full justify-center">
                   ¡Entrena para alcanzarlo!
                 </Badge>
@@ -220,7 +153,7 @@ export function Dashboard() {
               <div className="flex items-center gap-2">
                 <Zap className="w-5 h-5 text-primary" />
                 <div>
-                  <div className="text-2xl font-bold">{Math.round(stats.lastWPM)}</div>
+                  <div className="text-2xl font-bold">{Math.round(stats?.lastWPM || 0)}</div>
                   <div className="text-xs text-muted-foreground">WPM</div>
                 </div>
               </div>
@@ -232,7 +165,7 @@ export function Dashboard() {
               <div className="flex items-center gap-2">
                 <Brain className="w-5 h-5 text-accent" />
                 <div>
-                  <div className="text-2xl font-bold">{Math.round(stats.lastComprehension)}%</div>
+                  <div className="text-2xl font-bold">{Math.round(stats?.lastComprehension || 0)}%</div>
                   <div className="text-xs text-muted-foreground">Comprensión</div>
                 </div>
               </div>
@@ -244,7 +177,7 @@ export function Dashboard() {
               <div className="flex items-center gap-2">
                 <Trophy className="w-5 h-5 text-warning" />
                 <div>
-                  <div className="text-2xl font-bold">{Math.round(stats.totalXP)}</div>
+                  <div className="text-2xl font-bold">{Math.round(stats?.totalXP || 0)}</div>
                   <div className="text-xs text-muted-foreground">XP Total</div>
                 </div>
               </div>
@@ -256,7 +189,7 @@ export function Dashboard() {
               <div className="flex items-center gap-2">
                 <Flame className="w-5 h-5 text-orange-500" />
                 <div>
-                  <div className="text-2xl font-bold">{stats.streak}</div>
+                  <div className="text-2xl font-bold">{stats?.streak || 0}</div>
                   <div className="text-xs text-muted-foreground">Días seguidos</div>
                 </div>
               </div>
@@ -292,7 +225,7 @@ export function Dashboard() {
             Subir Texto
           </Button>
         </div>
-    <TextUploadModal
+  <TextUploadModal
           open={showUpload}
           onOpenChange={setShowUpload}
           onProcess={async (content) => {
@@ -304,9 +237,7 @@ export function Dashboard() {
           open={showSettings}
           onOpenChange={setShowSettings}
           userId={user?.id || ''}
-          onUpdated={() => {
-            loadUserStats();
-          }}
+      onUpdated={() => { refetch(); }}
         />
       </div>
     </div>

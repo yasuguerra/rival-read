@@ -41,7 +41,7 @@ function buildUserPrompt(topic: string, level: number) {
 }
 
 export async function generateReadingPassage(opts: GenerateOptions): Promise<GeneratedPassage> {
-  const key = import.meta.env.VITE_OPENAI_API_KEY;
+  const key = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
   if (!key) {
     throw new Error('Missing VITE_OPENAI_API_KEY');
   }

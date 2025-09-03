@@ -78,28 +78,31 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: Ne
 
   const handleAnswer = (answer: string) => {
     if (gamePhase !== 'playing') return;
-    
+
     const reactionTime = Date.now() - trialStartTime;
     const isCorrect = answer === correctAnswer;
     const newAttempts = attempts + 1;
-    
+
     setAttempts(newAttempts);
     setReactionTimes(prev => [...prev, reactionTime]);
-    
-    if (isCorrect) {
-      setScore(prev => prev + 1);
-    }
-    
+    if (isCorrect) setScore(prev => prev + 1);
+
+    // Enter brief feedback/blank phase to clear cognitive interference
+    setGamePhase('feedback');
+    setStimulus('');
+    setStimulusColor('');
+
     setTimeout(() => {
       if (currentTrial >= 20) {
         const duration = (Date.now() - startTime) / 1000;
-        const accuracy = (score / newAttempts) * 100;
+        const accuracy = newAttempts === 0 ? 0 : (score / newAttempts) * 100;
         onComplete(score, accuracy, duration);
       } else {
         setCurrentTrial(prev => prev + 1);
+        setGamePhase('playing');
         generateTrial();
       }
-    }, 500);
+    }, 350);
   };
 
   const getAverageReactionTime = () => {
@@ -203,6 +206,11 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: Ne
                   </Button>
                 </div>
               )}
+            </div>
+          )}
+          {gamePhase === 'feedback' && (
+            <div className="h-40 flex items-center justify-center text-muted-foreground">
+              <span className="animate-pulse">Preparando siguiente estímulo...</span>
             </div>
           )}
         </CardContent>

@@ -54,10 +54,16 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
   }, [generateSequence, showTime]);
 
   const selectWord = useCallback((word: string) => {
-    if (!selectedWords.includes(word)) {
-      setSelectedWords(prev => [...prev, word]);
-    }
-  }, [selectedWords]);
+    // Permitir toggle: si ya está, quitar (ergonomía / deshacer)
+    setSelectedWords(prev => {
+      if (prev.includes(word)) {
+        return prev.filter(w => w !== word);
+      }
+      // impedir exceder longitud objetivo
+      if (prev.length >= targetSequence.length) return prev;
+      return [...prev, word];
+    });
+  }, [targetSequence.length]);
 
   const removeWord = useCallback((word: string) => {
     setSelectedWords(prev => prev.filter(w => w !== word));
@@ -71,11 +77,11 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
     setAttempts(newAttempts);
     
     if (isCorrect) {
-      setScore(score + 1);
-  setSequenceLength(prev => Math.min(prev + 1, 8));
+      setScore(s => s + 1);
+      setSequenceLength(prev => Math.min(prev + 1, 8));
       setShowTime(prev => Math.max(prev - 100, 1500));
     } else {
-  setSequenceLength(prev => Math.max(prev - 1, 2));
+      setSequenceLength(prev => Math.max(prev - 1, 2));
       setShowTime(prev => Math.min(prev + 200, 4000));
     }
     
