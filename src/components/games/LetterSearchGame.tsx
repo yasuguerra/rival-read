@@ -26,6 +26,8 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
   const [gameEnded, setGameEnded] = useState(false);
   // Incremental score that grows as user finds correct letters
   const [score, setScore] = useState(0);
+  // Track number of completed rounds (each time all targets in a grid are found)
+  const [rounds, setRounds] = useState(1);
 
   const generateGame = useCallback(() => {
     // Generate random letters for grid
@@ -57,8 +59,10 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
       newGrid[randomIndex] = randomTarget;
     }
     
-    setGrid(newGrid);
-    setTargetLetters(targets);
+  setGrid(newGrid);
+  setTargetLetters(targets);
+  // Reset per-round state
+  setFoundTargets(new Set());
   }, [gridSize, targetCount]);
 
   // Initialize game
@@ -100,7 +104,10 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
       // Check if all targets found
       const totalTargetsInGrid = grid.filter(cell => targetLetters.includes(cell)).length;
       if (newFoundTargets.size >= totalTargetsInGrid) {
-        endGame();
+        // Round complete: start a new one (do not end game, keep timer running)
+        setRounds(r => r + 1);
+        generateGame();
+        return;
       }
     } else if (!targetLetters.includes(letter)) {
       // Wrong letter clicked
@@ -159,6 +166,9 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
           <Badge variant="outline">
             <Zap className="w-4 h-4 mr-1" />
             Puntos: {score}
+          </Badge>
+          <Badge variant="outline">
+            Rondas: {rounds - 1}
           </Badge>
           <Badge variant="outline">
             <Target className="w-4 h-4 mr-1" />
