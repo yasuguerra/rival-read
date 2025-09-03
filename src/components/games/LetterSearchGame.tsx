@@ -212,12 +212,7 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
                   variant="outline"
                   className={`
                     aspect-square text-[clamp(0.6rem,2vw,0.9rem)] font-bold transition-all duration-200
-                    ${isFound 
-                      ? 'bg-success/30 border-success text-success-foreground' 
-                      : isTarget
-                        ? 'hover:bg-primary/20 border-primary/50'
-                        : 'hover:bg-secondary/50'
-                    }
+                    bg-background/40 hover:bg-muted/40 border-border/40
                   `}
                   onClick={() => handleCellClick(index)}
                   disabled={gameEnded}
