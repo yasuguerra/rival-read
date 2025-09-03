@@ -25,6 +25,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
   const [options, setOptions] = useState<string[]>([]);
   const [correctAnswer, setCorrectAnswer] = useState('');
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [roundsCompleted, setRoundsCompleted] = useState(0);
   const [startTime, setStartTime] = useState<Date | null>(null);
 
@@ -128,41 +129,30 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
     
     return Array.from(options);
   };
-
   const generateRound = () => {
-    // Determine word length based on level
-    const wordLength = Math.min(4 + Math.floor(level / 2), 8); // 4 to 8 letters
-    const optionsCount = Math.min(3 + Math.floor(level / 3), 6); // 3 to 6 options
-    
-    // Get words of appropriate length
+    const wordLength = Math.min(4 + Math.floor(level / 2), 8);
+    const optionsCount = Math.min(3 + Math.floor(level / 3), 6);
     const availableWords = Object.entries(wordsByLength)
       .filter(([length]) => parseInt(length) === wordLength)
-      .map(([, words]) => words)
-      .flat();
-    
-    if (availableWords.length === 0) {
-      // Fallback to any words if none available for exact length
-      const allWords = Object.values(wordsByLength).flat();
-      const word = allWords[Math.floor(Math.random() * allWords.length)];
-      setCurrentWord(word);
-    } else {
-      const word = availableWords[Math.floor(Math.random() * availableWords.length)];
-      setCurrentWord(word);
-    }
-    
-    const word = currentWord || availableWords[0] || 'casa';
-    const scrambled = scrambleWord(word);
-    const wrongOptions = generateWrongOptions(word, optionsCount - 1);
-    const allOptions = [word, ...wrongOptions].sort(() => Math.random() - 0.5);
-    
+      .flatMap(([, w]) => w);
+    const allWordsFlat = Object.values(wordsByLength).flat();
+    const selectedWord = (availableWords.length > 0
+      ? availableWords[Math.floor(Math.random() * availableWords.length)]
+      : allWordsFlat[Math.floor(Math.random() * allWordsFlat.length)]) || 'casa';
+    setCurrentWord(selectedWord);
+    const scrambled = scrambleWord(selectedWord);
+    const wrongOptions = generateWrongOptions(selectedWord, optionsCount - 1);
+    const allOptions = [selectedWord, ...wrongOptions].sort(() => Math.random() - 0.5);
     setScrambledWord(scrambled);
     setOptions(allOptions);
-    setCorrectAnswer(word);
+    setCorrectAnswer(selectedWord);
     setFeedback(null);
+    setSelectedIndex(null);
   };
 
-  const handleAnswer = (selectedWord: string) => {
+  const handleAnswer = (selectedWord: string, idx?: number) => {
     if (feedback) return;
+    if (typeof idx === 'number') setSelectedIndex(idx);
     
     const isCorrect = selectedWord === correctAnswer;
     setFeedback(isCorrect ? 'correct' : 'incorrect');
@@ -196,10 +186,8 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
       });
     }, 1500);
   };
-
   const handleGameEnd = () => {
     if (!startTime) return;
-    
     const duration = (Date.now() - startTime.getTime()) / 1000;
     const accuracy = roundsCompleted > 0 ? Math.min(1, score / (score + errors * 10)) : 0;
     onComplete(score, accuracy, duration);
@@ -222,6 +210,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
     setTimeLeft(60);
     setRoundsCompleted(0);
     setFeedback(null);
+    setSelectedIndex(null);
     setCurrentWord('');
     setScrambledWord('');
     setOptions([]);
@@ -245,7 +234,6 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
               <p className="text-sm text-muted-foreground">Nivel {level} • Palabras de {Math.min(4 + Math.floor(level / 2), 8)} letras</p>
             </div>
           </div>
-          
           {gameStarted && (
             <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
               {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
@@ -320,18 +308,16 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                       <Button
                         key={index}
                         variant="outline"
-                        className={`
-                          h-12 text-lg font-medium transition-all duration-200 touch-manipulation
-                          ${feedback === 'correct' && option === correctAnswer
-                            ? 'bg-success/20 border-success text-success'
-                            : feedback === 'incorrect' && option === correctAnswer
-                            ? 'bg-success/20 border-success text-success'
-                            : feedback === 'incorrect' && option !== correctAnswer
-                            ? 'bg-destructive/10 border-destructive/50'
-                            : 'hover:bg-primary/10 hover:border-primary/50'
-                          }
+                        className={`h-12 text-lg font-medium transition-all duration-200 touch-manipulation
+                          ${feedback ? (
+                            option === correctAnswer
+                              ? 'bg-success/20 border-success text-success'
+                              : index === selectedIndex && feedback === 'incorrect'
+                                ? 'bg-destructive/20 border-destructive text-destructive'
+                                : 'opacity-60'
+                          ) : ''}
                         `}
-                        onClick={() => handleAnswer(option)}
+                        onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswer(option, index); }}
                         disabled={!!feedback}
                       >
                         {option}

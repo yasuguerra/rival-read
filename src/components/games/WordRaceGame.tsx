@@ -39,6 +39,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [showQuestions, setShowQuestions] = useState(false);
   const [canGoBack, setCanGoBack] = useState(true);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
 
   const generateQuestions = useCallback((textContent: string) => {
     const sentences = textContent.split('.').filter(s => s.trim().length > 10);
@@ -95,6 +96,8 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
     }
   }, [currentIndex, words.length, showQuestions]);
 
+  useEffect(() => { setSelectedAnswer(null); }, [currentQuestion]);
+
   const handlePlay = () => {
     if (!startTime) {
       setStartTime(new Date());
@@ -126,6 +129,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
     const isCorrect = answerIndex === questions[currentQuestion].correct;
     const newAnswers = [...answers, isCorrect];
     setAnswers(newAnswers);
+    setSelectedAnswer(answerIndex);
 
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1);
@@ -167,7 +171,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
 
   if (showQuestions) {
     return (
-      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+      <Card key={`questions-${currentQuestion}`} className="border-border/50 bg-card/80 backdrop-blur-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Brain className="w-5 h-5 text-accent" />
@@ -184,19 +188,23 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
               </div>
 
               <div className="grid grid-cols-1 gap-3">
-                {questions[currentQuestion].options.map((option: string, index: number) => (
-                  <Button
-                    key={index}
-                    variant="outline"
-                    className="p-4 h-auto text-left justify-start hover:bg-primary/10"
-                    onClick={() => handleAnswerQuestion(index)}
-                  >
-                    <span className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center mr-3 text-sm font-bold">
-                      {String.fromCharCode(65 + index)}
-                    </span>
-                    {option}
-                  </Button>
-                ))}
+                {questions[currentQuestion].options.map((option: string, index: number) => {
+                  const isSelected = selectedAnswer === index;
+                  return (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      className={`p-4 h-auto text-left justify-start transition-colors ${isSelected ? 'bg-primary/20 border-primary' : 'hover:bg-primary/10'}`}
+                      onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswerQuestion(index); }}
+                      disabled={selectedAnswer !== null && selectedAnswer !== index}
+                    >
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center mr-3 text-sm font-bold ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-primary/20'}`}>
+                        {String.fromCharCode(65 + index)}
+                      </span>
+                      {option}
+                    </Button>
+                  );
+                })}
               </div>
 
               <div className="text-center text-sm text-muted-foreground">

@@ -187,7 +187,10 @@ export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameP
     
     // Generate new grid if time remaining
     if (timeLeft > 5) {
-      generateGrid();
+      // simple slight delay to allow user to perceive completion
+      setTimeout(() => {
+        if (!gameCompleted) generateGrid();
+      }, 120);
     } else {
       setGameCompleted(true);
       handleGameEnd();

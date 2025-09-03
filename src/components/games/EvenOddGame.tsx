@@ -232,6 +232,15 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
           )}
         </div>
 
+        {!gameStarted && (
+          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+            <CardContent className="p-6 text-center space-y-4">
+              <h2 className="text-xl font-semibold">Encuentra números {currentRule === 'even' ? 'PARES' : 'IMPARES'}</h2>
+              <p className="text-muted-foreground text-sm">Pulsa todos los números que cumplan la regla antes de que acabe el tiempo. La matriz crecerá y la regla puede cambiar.</p>
+              <Button onClick={startGame} className="bg-gradient-primary">Comenzar</Button>
+            </CardContent>
+          </Card>
+        )}
         {/* Game Stats */}
         {gameStarted && (
           <Card className="border-border/50 bg-card/80 backdrop-blur-sm">

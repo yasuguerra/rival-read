@@ -20,6 +20,9 @@ import {
 import { RivalAvatar } from './RivalAvatar';
 import { SessionSetup } from './SessionSetup';
 import { GamePractice } from './GamePractice';
+import { TextUploadModal } from './TextUploadModal';
+import { SettingsModal } from './SettingsModal.tsx';
+import { useNavigate } from 'react-router-dom';
 
 interface UserStats {
   totalXP: number;
@@ -33,6 +36,7 @@ interface UserStats {
 
 export function Dashboard() {
   const { user, signOut } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<UserStats>({
     totalXP: 0,
     streak: 0,
@@ -44,6 +48,8 @@ export function Dashboard() {
   });
   const [showSessionSetup, setShowSessionSetup] = useState(false);
   const [showGamePractice, setShowGamePractice] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -143,7 +149,7 @@ export function Dashboard() {
             <p className="text-muted-foreground">¿Listo para entrenar tu mente?</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon">
+            <Button variant="outline" size="icon" onClick={() => setShowSettings(true)}>
               <Settings className="w-4 h-4" />
             </Button>
             <Button variant="outline" size="icon" onClick={signOut}>
@@ -278,13 +284,30 @@ export function Dashboard() {
           </Button>
           
           <Button 
-            variant="outline" 
+            variant="outline"
+            onClick={() => setShowUpload(true)}
             className="h-16 border-border/50 hover:bg-secondary/50 text-lg"
           >
             <BookOpen className="w-6 h-6 mr-2" />
             Subir Texto
           </Button>
         </div>
+    <TextUploadModal
+          open={showUpload}
+          onOpenChange={setShowUpload}
+          onProcess={async (content) => {
+      // Navega a modo lectura con state (texto cargado)
+      navigate('/lectura-subida', { state: { text: content } });
+          }}
+        />
+        <SettingsModal
+          open={showSettings}
+          onOpenChange={setShowSettings}
+          userId={user?.id || ''}
+          onUpdated={() => {
+            loadUserStats();
+          }}
+        />
       </div>
     </div>
   );
