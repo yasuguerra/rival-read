@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 import { recordGameRun } from '@/services/gameRuns';
 import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
@@ -18,6 +19,9 @@ interface ReadingAcceleratorGameProps {
 
 export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: ReadingAcceleratorGameProps) {
   const { user } = useAuth();
+  const [level, setLevel] = useState(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'reading_accelerator', level, setLevel });
+
   const [gamePhase, setGamePhase] = useState<'ready' | 'reading' | 'questions' | 'feedback'>('ready');
   const [currentText, setCurrentText] = useState('');
   const [currentPosition, setCurrentPosition] = useState(0);
@@ -62,7 +66,7 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
   ];
 
   const words = currentText.split(/\s+/).filter(word => word.length > 0);
-  const highlightRange = 3 + difficulty; // Number of words to highlight
+  const highlightRange = 3 + level; // Number of words to highlight
 
   const topics = ['neuroplasticidad', 'atención selectiva', 'memoria de trabajo', 'lectura eficiente', 'aprendizaje'];
   const [currentTopicIdx, setCurrentTopicIdx] = useState(0);
@@ -83,16 +87,17 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
   }, [currentTopicIdx]);
 
   const startGame = useCallback(() => {
-    loadDynamicContent(difficulty);
+    loadDynamicContent(level);
     setUserAnswers([]);
     setCurrentQuestion(0);
     setScore(0);
     setCurrentPosition(0);
-    setWordsPerMinute(180 + difficulty * 40); // Increase WPM with difficulty
+    const wpmSetting = 180 + level * 40;
+    setWordsPerMinute(wpmSetting); // Increase WPM with level
     setStartTime(Date.now());
     setGamePhase('reading');
-    trackEvent(user?.id, 'game_start', { game: 'reading_accelerator', wpm: 180 + difficulty * 40, level: difficulty });
-  }, [difficulty, user?.id, loadDynamicContent]);
+    trackEvent(user?.id, 'game_start', { game: 'reading_accelerator', wpm: wpmSetting, level });
+  }, [level, user?.id, loadDynamicContent]);
 
   const calculateReadingProgress = () => {
     return (currentPosition / words.length) * 100;
@@ -140,13 +145,13 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
       // Compute WPM based on words shown and total time in minutes
       const wpm = Math.round(words.length / (duration / 60));
       // XP calculation
-      const xp = computeGameXp('reading_accelerator', { wpm, accuracy, score, level: difficulty });
+      const xp = computeGameXp('reading_accelerator', { wpm, accuracy, score, level });
       try {
         if (user) {
           await recordGameRun({
             userId: user.id,
             gameCode: 'reading_accelerator',
-            level: difficulty,
+            level,
             score,
             accuracy,
             durationSec: duration,
@@ -154,11 +159,18 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
           });
         }
         awardXp(user?.id, xp, 'game', { game: 'reading_accelerator', wpm });
-        trackEvent(user?.id, 'wpm_measured', { game: 'reading_accelerator', wpm, level: difficulty });
-        trackEvent(user?.id, 'game_end', { game: 'reading_accelerator', score, accuracy, wpm, level: difficulty });
+        trackEvent(user?.id, 'wpm_measured', { game: 'reading_accelerator', wpm, level });
+        trackEvent(user?.id, 'game_end', { game: 'reading_accelerator', score, accuracy, wpm, level });
       } catch (e) {
         console.error('Failed to record reading accelerator results', e);
       }
+
+      // Update level based on comprehension accuracy
+      const nextLevel = accuracy >= 70 ? level + 1 : accuracy < 50 ? Math.max(1, level - 1) : level;
+      if (nextLevel !== level) {
+        setLevel(nextLevel);
+      }
+
       onComplete(score, accuracy, duration);
     }
   };
@@ -216,7 +228,7 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
                 aunque sientas que no captaste todo. Esto entrena tu velocidad de lectura.
               </p>
               <div className="text-sm text-muted-foreground space-y-2">
-                <p><strong>Velocidad:</strong> {180 + difficulty * 40} palabras por minuto</p>
+                <p><strong>Velocidad:</strong> {180 + level * 40} palabras por minuto</p>
                 <p><strong>Objetivo:</strong> Mantener el ritmo y comprender lo esencial</p>
               </div>
               <Button onClick={startGame} className="bg-gradient-primary">
