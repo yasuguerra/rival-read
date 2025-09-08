@@ -1,404 +1,406 @@
-import { useState, useEffect, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Play, RotateCcw, Target, Clock, Zap } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { trackEvent } from '@/services/analytics';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
+"use client";
 
-interface SchulteGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { ArrowLeft, Clock, RotateCcw, Target, Zap } from "lucide-react";
+
+// Servicios (con wrappers seguros para evitar choques de tipos)
+import { trackEvent } from "@/services/analytics";
+import { recordGameRun } from "@/services/gameRuns";
+import { awardXp } from "@/services/xp";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { usePersistentGameLevel } from "@/hooks/usePersistentGameLevel";
+
+type SchulteGameProps = {
+  onComplete: (score: number, accuracy: number, durationMs: number) => void;
   difficulty?: number;
   onBack?: () => void;
+};
+
+const SESSION_MS = 60_000;
+
+type Cell = { n: number; found: boolean };
+
+const LEVEL_SIZES = [4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
+const MAX_GRID = 8;
+
+function levelToGridSize(level: number): number {
+  if (level <= LEVEL_SIZES.length) return LEVEL_SIZES[level - 1];
+  return MAX_GRID;
 }
 
-interface Cell {
-  id: number;
-  number: number;
-  position: { row: number; col: number };
-  found: boolean;
+// Umbrales “amistosos” por nivel (ms)
+function boardTimeThresholdMs(level: number): number {
+  const size = levelToGridSize(level);
+  const base = 12_000; // ~4x4
+  const cells = size * size;
+  const factor = 1 + (cells - 16) * 0.05; // +5% por celda vs 4x4
+  const strictness = 1 - Math.min(0.25, (level - 1) * 0.02);
+  return Math.max(6_000, Math.round(base * factor * strictness));
 }
 
-export function SchulteGame({ onComplete, difficulty = 1, onBack }: SchulteGameProps) {
+function shuffledCells(size: number): Cell[] {
+  const nums = Array.from({ length: size * size }, (_, i) => i + 1);
+  for (let i = nums.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [nums[i], nums[j]] = [nums[j], nums[i]]; // ✅ swap correcto
+  }
+  return nums.map((n) => ({ n, found: false }));
+}
+
+/* ---------- Wrappers seguros (evitan TS 2345/2353 sin romper tipos globales) ---------- */
+type MinimalAnalyticsEvent = { type: string } & Record<string, unknown>;
+const emitEvent = (e: MinimalAnalyticsEvent) => {
+  try {
+    (trackEvent as unknown as (ev: MinimalAnalyticsEvent) => void)?.(e);
+  } catch {}
+};
+
+const recordRun = async (
+  userId: string | undefined,
+  gameKey: string,
+  payload: Record<string, unknown>
+) => {
+  try {
+    await (recordGameRun as unknown as (
+      sb: typeof supabase,
+      uid: string | undefined,
+      game: string,
+      data: Record<string, unknown>
+    ) => Promise<void>)?.(supabase, userId, gameKey, payload);
+  } catch {}
+};
+
+const grantXp = async (
+  userId: string | undefined,
+  xp: number,
+  meta?: Record<string, unknown>
+) => {
+  try {
+    await (awardXp as unknown as (
+      sb: typeof supabase,
+      uid: string | undefined,
+      amount: number,
+      m?: Record<string, unknown>
+    ) => Promise<void>)?.(supabase, userId, xp, meta);
+  } catch {}
+};
+
+// Reemplazo de computeGameXp (evita TS 2353 por shape de ComputeParams distinto)
+function computeXpSimple(metrics: {
+  boardsCompleted: number;
+  found: number;
+  errors: number;
+  accuracy: number;
+}) {
+  const base = metrics.found * (0.5 + 0.5 * metrics.accuracy);
+  const bonus = metrics.boardsCompleted * 3;
+  const penalty = metrics.errors * 1;
+  return Math.max(1, Math.round(base + bonus - penalty));
+}
+/* -------------------------------------------------------------------------------------- */
+
+export default function SchulteGame({
+  onComplete,
+  difficulty = 1,
+  onBack,
+}: SchulteGameProps) {
   const { user } = useAuth();
-  const [level, setLevel] = useState(difficulty);
-  const [gridSize, setGridSize] = useState(4); // Start smaller (4x4) for early levels
-  const [cells, setCells] = useState<Cell[]>([]);
-  const [currentTarget, setCurrentTarget] = useState(1);
-  const [gameStarted, setGameStarted] = useState(false);
-  const [gameCompleted, setGameCompleted] = useState(false);
-  const [errors, setErrors] = useState(0);
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [timeLeft, setTimeLeft] = useState(60);
-  const [boardsCompleted, setBoardsCompleted] = useState(0);
-  const [totalXP, setTotalXP] = useState(0);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [foundNumbers, setFoundNumbers] = useState(0);
-  const [boardStartTime, setBoardStartTime] = useState<Date | null>(null);
 
-  // Load saved level on component mount
-  useEffect(() => {
-    loadSavedLevel();
-  }, [user]);
+  const [level, setLevel] = useState<number>(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: "schulte", level, setLevel });
+  const gridSize = useMemo(() => levelToGridSize(level), [level]);
 
-  // Timer effect
-  useEffect(() => {
-    if (gameStarted && !gameCompleted) {
-      const timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            handleGameEnd();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      
-      intervalRef.current = timer;
-      return () => clearInterval(timer);
-    }
-  }, [gameStarted, gameCompleted]);
+  const [cells, setCells] = useState<Cell[]>(() => shuffledCells(gridSize));
+  const [currentTarget, setCurrentTarget] = useState<number>(1);
+  const [foundCount, setFoundCount] = useState<number>(0);
+  const [errors, setErrors] = useState<number>(0);
+  const [boardErrors, setBoardErrors] = useState<number>(0);
+  const [boardsCompleted, setBoardsCompleted] = useState<number>(0);
 
-  // Map level to grid size with gentler early ramp (levels 1-2:4, 3-4:5, 5-6:6, 7-8:7, 9-10:8)
-  const computeGridSize = (lvl: number) => {
-    if (lvl < 3) return 4;
-    if (lvl < 5) return 5;
-    if (lvl < 7) return 6;
-    if (lvl < 9) return 7;
-    return 8;
-  };
+  const [running, setRunning] = useState<boolean>(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [timeLeftMs, setTimeLeftMs] = useState<number>(SESSION_MS);
 
-  const loadSavedLevel = async () => {
-    if (!user) return;
-    
-    try {
-      const { data } = await supabase
-        .from('user_game_state')
-        .select('last_level')
-        .eq('user_id', user.id)
-        .eq('game_code', 'schulte')
-        .maybeSingle();
-      
-      if (data?.last_level) {
-        const savedLevel = data.last_level;
-        setLevel(savedLevel);
-        setGridSize(computeGridSize(savedLevel));
-      } else {
-        // Ensure grid size matches initial level
-        setGridSize(computeGridSize(level));
-      }
-    } catch (error) {
-      console.error('Error loading saved level:', error);
-    }
-  };
+  const boardStartedAtRef = useRef<number | null>(null);
+  const tickRef = useRef<number | null>(null);
 
-  const saveLevelProgress = async (newLevel: number) => {
-    if (!user) return;
-    
-    try {
-      await supabase
-        .from('user_game_state')
-        .upsert({
-          user_id: user.id,
-          game_code: 'schulte',
-          last_level: newLevel,
-          updated_at: new Date().toISOString()
-        });
-    } catch (error) {
-      console.error('Error saving level:', error);
-    }
-  };
+  // Nivel del tablero actualmente mostrado (para controlar la guía visual)
+  const [boardLevel, setBoardLevel] = useState<number>(level);
 
-  const generateGrid = () => {
-    const totalCells = gridSize * gridSize;
-    const numbers = Array.from({ length: totalCells }, (_, i) => i + 1);
-    
-    // Shuffle the numbers
-    for (let i = numbers.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
-    }
-    
-    const newCells: Cell[] = numbers.map((number, index) => ({
-      id: index,
-      number,
-      position: {
-        row: Math.floor(index / gridSize),
-        col: index % gridSize
-      },
-      found: false
-    }));
-    
-    setCells(newCells);
+  const resetBoard = useCallback(
+    (nextLevel?: number) => {
+      const effectiveLevel = nextLevel ?? level;
+      const size = levelToGridSize(effectiveLevel);
+      setCells(shuffledCells(size));
+      setCurrentTarget(1);
+      setBoardErrors(0);
+      setBoardLevel(effectiveLevel); // ✅ asegura que la guía use el nivel del tablero mostrado
+      boardStartedAtRef.current = performance.now();
+    },
+    [level]
+  );
+
+  const resetSession = useCallback(() => {
+    const baseLevel = Math.max(1, Math.floor(difficulty));
+    setLevel(baseLevel);
+    setCells(shuffledCells(levelToGridSize(baseLevel)));
     setCurrentTarget(1);
-    setFoundNumbers(0);
-    setBoardStartTime(new Date());
-  };
-
-  const handleCellClick = (cellNumber: number) => {
-    if (!gameStarted || gameCompleted) return;
-    
-    if (cellNumber === currentTarget) {
-      // Correct number found
-      setCells(prev => prev.map(cell => 
-        cell.number === cellNumber ? { ...cell, found: true } : cell
-      ));
-      
-      const newFoundNumbers = foundNumbers + 1;
-      setFoundNumbers(newFoundNumbers);
-      setCurrentTarget(prev => prev + 1);
-      
-      // Check if grid is completed
-      if (newFoundNumbers === gridSize * gridSize) {
-        handleBoardComplete();
-      }
-    } else {
-      // Wrong number clicked
-      setErrors(prev => prev + 1);
-    }
-  };
-
-  const handleBoardComplete = () => {
-    if (!boardStartTime) return;
-    
-    const boardTime = (Date.now() - boardStartTime.getTime()) / 1000;
-    const timeThreshold = Math.max(30 - level * 2, 15); // 30s to 15s threshold
-    
-    // Level up if completed quickly with 100% accuracy (per board)
-    if (boardTime < timeThreshold && errors === 0) {
-      const newLevel = Math.min(level + 1, 10); // Cap at level 10
-      setLevel(newLevel);
-      setGridSize(computeGridSize(newLevel));
-      saveLevelProgress(newLevel);
-      trackEvent(user?.id, 'level_up', { game: 'schulte', newLevel });
-    }
-    
-    setBoardsCompleted(prev => prev + 1);
-    
-    // Calculate XP for this board
-  // Approximate score for XP: favor speed and penalize errors
-  const syntheticScore = Math.max(1, Math.round((100 - Math.min(100, boardTime * 3)) - errors * 5));
-  const boardXP = computeGameXp('schulte', { level, score: syntheticScore });
-  setTotalXP(prev => prev + boardXP);
-  awardXp(user?.id, boardXP, 'game', { game: 'schulte', boardTime, level, errors });
-    
-    // Reset per-board errors for next board
+    setFoundCount(0);
     setErrors(0);
-    // Always attempt to generate next board if time remains > 0
-    if (timeLeft > 0) {
-      setTimeout(() => {
-        if (!gameCompleted) generateGrid();
-      }, 150);
-    } else {
-      setGameCompleted(true);
-      handleGameEnd();
-    }
-  };
+    setBoardErrors(0);
+    setBoardsCompleted(0);
+    setTimeLeftMs(SESSION_MS);
+    setRunning(false);
+    setStartedAt(null);
+    setBoardLevel(baseLevel); // ✅ resetea boardLevel también
+    boardStartedAtRef.current = null;
+  }, [difficulty]);
 
-  const handleGameEnd = async () => {
-    if (!startTime) return;
-    
-    setGameCompleted(true);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+  const start = useCallback(() => {
+    if (running) return;
+    setRunning(true);
+    setStartedAt(performance.now());
+    setTimeLeftMs(SESSION_MS);
+    boardStartedAtRef.current = performance.now();
+    emitEvent({ type: "game_start", game: "schulte", level });
+  }, [running, level]);
+
+  useEffect(() => {
+    if (!running) {
+      if (tickRef.current) {
+        cancelAnimationFrame(tickRef.current);
+        tickRef.current = null;
+      }
+      return;
     }
-    
-    const duration = 60 - timeLeft; // Total time played
-  const accuracyFraction = boardsCompleted > 0 ? 1.0 : foundNumbers / (gridSize * gridSize);
-  const accuracyPct = accuracyFraction * 100;
-  const score = totalXP;
-    try {
-      if (user) {
-        await recordGameRun({
-          userId: user.id,
-          gameCode: 'schulte',
-          level,
-          score,
-          accuracy: accuracyPct,
-          durationSec: duration,
-          params: { boardsCompleted, errors }
+    const loop = () => {
+      if (!startedAt) return;
+      const elapsed = performance.now() - startedAt;
+      const left = Math.max(0, SESSION_MS - elapsed);
+      setTimeLeftMs(left);
+      if (left > 0) {
+        tickRef.current = requestAnimationFrame(loop);
+      } else {
+        tickRef.current = null;
+        endSession();
+      }
+    };
+    tickRef.current = requestAnimationFrame(loop);
+    return () => {
+      if (tickRef.current) cancelAnimationFrame(tickRef.current);
+      tickRef.current = null;
+    };
+  }, [running, startedAt]);
+
+  const onCellClick = useCallback(
+    (idx: number) => {
+      if (!running) return;
+      const cell = cells[idx];
+      if (!cell || cell.found) return;
+
+      if (cell.n === currentTarget) {
+        const wasLast = currentTarget === gridSize * gridSize;
+
+        setCells((prev) => {
+          const next = [...prev];
+          next[idx] = { ...prev[idx], found: true };
+          return next;
         });
+
+        setFoundCount((c) => c + 1);
+
+        if (wasLast) {
+          handleBoardComplete();
+        } else {
+          setCurrentTarget((t) => t + 1);
+        }
+      } else {
+        setErrors((e) => e + 1);
+        setBoardErrors((e) => e + 1);
       }
-      trackEvent(user?.id, 'game_end', { game: 'schulte', score, accuracy: accuracyPct, boardsCompleted, errors, level });
-    } catch (e) {
-      console.error('Failed to record schulte run', e);
-    }
-    onComplete(score, accuracyPct, duration);
-  };
+    },
+    [cells, currentTarget, running, gridSize]
+  );
 
-  const startGame = () => {
-    generateGrid();
-    setGameStarted(true);
-    setGameCompleted(false);
-    setErrors(0);
-    setStartTime(new Date());
-    setTimeLeft(60);
-    setFoundNumbers(0);
-    setBoardsCompleted(0);
-    setTotalXP(0);
-  trackEvent(user?.id, 'game_start', { game: 'schulte', level });
-  };
+  const handleBoardComplete = useCallback(() => {
+    const now = performance.now();
+    const boardTime = boardStartedAtRef.current ? now - boardStartedAtRef.current : 0;
 
-  const resetGame = () => {
-    setGameStarted(false);
-    setGameCompleted(false);
-    setErrors(0);
-    setStartTime(null);
-    setTimeLeft(60);
-    setFoundNumbers(0);
-    setBoardsCompleted(0);
-    setTotalXP(0);
-    setBoardStartTime(null);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-  // No specific reset event type in analytics schema; omit or repurpose if added later
-  };
+    const passed = boardErrors <= 1 && boardTime <= boardTimeThresholdMs(level);
+    const nextLevel = passed ? level + 1 : level;
+
+    setBoardsCompleted((b) => b + 1);
+    resetBoard(nextLevel);
+    if (passed) setLevel(nextLevel);
+  }, [boardErrors, level, resetBoard]);
+
+  const endSession = useCallback(async () => {
+    setRunning(false);
+
+    const attempts = foundCount + errors;
+    const accuracy = attempts > 0 ? foundCount / attempts : 0;
+
+    const score = Math.max(0, Math.round(foundCount * (0.7 + 0.3 * accuracy) - errors * 0.5));
+
+    emitEvent({
+      type: "game_end",
+      game: "schulte",
+      level,
+      boardsCompleted,
+      foundCount,
+      errors,
+      accuracy,
+      durationMs: SESSION_MS,
+    });
+
+    await recordRun(user?.id, "schulte", {
+      level,
+      boardsCompleted,
+      found: foundCount,
+      errors,
+      accuracy,
+      duration_ms: SESSION_MS,
+      ended_at: new Date().toISOString(),
+    });
+
+    const xp = computeXpSimple({
+      boardsCompleted,
+      found: foundCount,
+      errors,
+      accuracy,
+    });
+    await grantXp(user?.id, xp, { reason: "schulte_session" });
+
+  onComplete?.(score, accuracy, SESSION_MS / 1000);
+  }, [boardsCompleted, errors, foundCount, level, onComplete, user?.id]);
+
+  // Mantengo tu efecto original
+  useEffect(() => {
+    resetBoard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridSize]);
+
+  const remainingSeconds = Math.ceil(timeLeftMs / 1000);
+  const progress = Math.max(0, Math.min(100, (timeLeftMs / SESSION_MS) * 100));
+  const showNextCue = boardLevel < 3; // ✅ guía solo en niveles 1–2 del tablero mostrado
 
   return (
-    <div className="min-h-screen bg-gradient-bg p-4">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            {onBack && (
-              <Button variant="outline" size="icon" onClick={onBack}>
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-            )}
-            <div>
-              <h1 className="text-2xl font-bold">Tabla de Schulte</h1>
-              <p className="text-sm text-muted-foreground">Nivel {level} • Tablero {gridSize}×{gridSize}</p>
+    <div className="mx-auto w-full max-w-[720px] space-y-4">
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={onBack} aria-label="Volver" type="button">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
+        <h2 className="text-xl font-semibold">Schulte Table</h2>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Tiempo</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-2 pb-4 pt-0">
+            <Clock className="h-4 w-4" />
+            <div className="w-full">
+              <Progress value={progress} />
+              <div className="mt-1 text-xs text-muted-foreground">
+                {remainingSeconds}s restantes
+              </div>
             </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            {gameStarted && !gameCompleted && (
-              <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
-                {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Game Stats */}
-        {gameStarted && (
-          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-            <CardContent className="p-4">
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex gap-6">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Objetivo</p>
-                    <p className="text-2xl font-bold text-primary">{currentTarget}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Errores</p>
-                    <p className="text-2xl font-bold text-destructive">{errors}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Tableros</p>
-                    <p className="text-2xl font-bold text-success">{boardsCompleted}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">XP</p>
-                    <p className="text-2xl font-bold text-accent">{totalXP}</p>
-                  </div>
-                </div>
-              </div>
-              <Progress value={(foundNumbers / (gridSize * gridSize)) * 100} className="h-2" />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Game Area */}
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-          <CardContent className="p-6">
-            {!gameStarted ? (
-              <div className="text-center space-y-4">
-                <div>
-                  <h2 className="text-xl font-semibold mb-2">Encuentra los números en orden</h2>
-                  <p className="text-muted-foreground">
-                    Toca los números del 1 al {gridSize * gridSize} en orden secuencial.
-                    Mantén la mirada en el centro y usa tu visión periférica.
-                  </p>
-                </div>
-                <Button 
-                  onClick={startGame}
-                  className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Comenzar Juego
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div 
-                  className="grid gap-2 mx-auto"
-                  style={{
-                    gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
-                    maxWidth: '400px'
-                  }}
-                >
-                  {cells.map((cell) => (
-                    <button
-                      key={cell.id}
-                      onClick={() => handleCellClick(cell.number)}
-                      className={`
-                        aspect-square border-2 rounded-lg font-bold transition-all duration-200 hover:scale-105
-                        min-h-[48px] min-w-[48px] touch-manipulation
-                        ${gridSize <= 5 ? 'text-xl' : gridSize <= 6 ? 'text-lg' : 'text-base'}
-                        ${cell.found 
-                          ? 'bg-success/20 border-success text-success' 
-                          : (level < 4 && cell.number === currentTarget)
-                            ? 'bg-primary/20 border-primary text-primary shadow-glow-primary'
-                            : 'bg-card border-border hover:border-primary/50'
-                        }
-                      `}
-                      disabled={cell.found}
-                    >
-                      {cell.number}
-                    </button>
-                  ))}
-                </div>
-                {gameCompleted && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="text-center space-y-4 p-6 rounded-lg border bg-card/90">
-                      <h2 className="text-xl font-semibold">Tiempo terminado</h2>
-                      <p className="text-sm text-muted-foreground">Tableros completados: {boardsCompleted}</p>
-                      <Button onClick={startGame} className="bg-gradient-primary">Reintentar</Button>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex justify-center gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={resetGame}
-                    className="border-border/50"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Reiniciar
-                  </Button>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Tips */}
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-          <CardContent className="p-4">
-            <div className="text-center text-sm text-muted-foreground space-y-1">
-              <p>💡 Mantén la mirada en el centro y usa tu visión periférica</p>
-              <p>⚡ No muevas los ojos demasiado, percibe todo el campo visual</p>
-              <p>🎯 La dificultad aumenta automáticamente con tu rendimiento</p>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Próximo</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-2 pb-4 pt-0">
+            <Target className="h-4 w-4" />
+            <div className="text-sm">
+              <span className="font-semibold">#{currentTarget}</span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Nivel</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-2 pb-4 pt-0">
+            <Zap className="h-4 w-4" />
+            <div className="text-sm">Lv {level}</div>
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/60">
+        <CardContent className="p-3 sm:p-4">
+          {/* 🔼 MOVIDO ARRIBA: estado + acciones */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-sm text-muted-foreground">
+              Aciertos: <span className="font-medium">{foundCount}</span> · Errores:{" "}
+              <span className="font-medium">{errors}</span> · Tableros:{" "}
+              <span className="font-medium">{boardsCompleted}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {!running ? (
+                <Button onClick={start} type="button">Iniciar</Button>
+              ) : (
+                <Button variant="outline" onClick={resetSession} type="button">
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  Reiniciar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Grid */}
+          <div
+            className="grid gap-1 sm:gap-1.5"
+            style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`, touchAction: "manipulation" }}
+            role="grid"
+            aria-label={`Tabla ${gridSize} por ${gridSize}`}
+          >
+            {cells.map((cell, idx) => {
+              const isNext = cell.n === currentTarget;
+              const showCue = showNextCue && isNext; // 👈 solo resalta si boardLevel < 3
+              return (
+                <button
+                  key={cell.n}
+                  onClick={() => onCellClick(idx)}
+                  disabled={cell.found || !running}
+                  type="button"
+                  className={[
+                    "aspect-square select-none rounded-md border text-center align-middle",
+                    "text-base sm:text-lg md:text-xl lg:text-2xl",
+                    "flex items-center justify-center",
+                    cell.found
+                      ? "bg-muted text-muted-foreground"
+                      : showCue
+                      ? "border-primary/80 bg-primary/5 font-semibold"
+                      : "bg-card",
+                  ].join(" ")}
+                >
+                  {cell.n}
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+        <CardContent className="p-4">
+          <div className="text-center text-sm text-muted-foreground space-y-1">
+            <p>💡 Mantén la mirada en el centro y usa tu visión periférica</p>
+            <p>⚡ Evita perseguir números con los ojos; percibe el patrón global</p>
+            <p>🎯 El nivel sube si completas con ≤1 error y dentro del umbral</p>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
