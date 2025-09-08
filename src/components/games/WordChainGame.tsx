@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +22,13 @@ const WORD_BANK = [
 ];
 
 export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainGameProps) {
+  const { user } = useAuth();
+  const [level, setLevel] = useState<number>(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'word_chain', level, setLevel });
+
+  const sequenceLength = Math.min(level + 1, 8);
+  const showTime = Math.max(1500, 2800 - (level - 1) * 100);
+
   const [gamePhase, setGamePhase] = useState<'ready' | 'showing' | 'selecting' | 'feedback'>('ready');
   const [targetSequence, setTargetSequence] = useState<string[]>([]);
   const [selectedWords, setSelectedWords] = useState<string[]>([]);
@@ -27,8 +36,6 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [startTime, setStartTime] = useState(0);
-  const [showTime, setShowTime] = useState(3000 - (difficulty * 200));
-  const [sequenceLength, setSequenceLength] = useState(Math.min(2 + difficulty - 1, 8)); // Start at 2 for level 1
 
   const generateSequence = useCallback(() => {
     const shuffled = [...WORD_BANK].sort(() => Math.random() - 0.5);
@@ -78,11 +85,9 @@ export function WordChainGame({ onComplete, difficulty = 1, onBack }: WordChainG
     
     if (isCorrect) {
       setScore(s => s + 1);
-      setSequenceLength(prev => Math.min(prev + 1, 8));
-      setShowTime(prev => Math.max(prev - 100, 1500));
+      setLevel(l => l + 1);
     } else {
-      setSequenceLength(prev => Math.max(prev - 1, 2));
-      setShowTime(prev => Math.min(prev + 200, 4000));
+      setLevel(l => Math.max(1, l - 1));
     }
     
     setGamePhase('feedback');
