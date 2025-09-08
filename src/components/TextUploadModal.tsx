@@ -5,6 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Loader2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
+import * as pdfjsLib from 'pdfjs-dist';
+
+(async () => {
+  const workerSrc = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc.default;
+})();
 
 interface TextUploadModalProps {
   open: boolean;
