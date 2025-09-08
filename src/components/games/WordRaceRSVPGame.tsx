@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 import { trackEvent } from '@/services/analytics';
 import { recordGameRun } from '@/services/gameRuns';
 import { computeGameXp, awardXp } from '@/services/xp';
@@ -33,11 +34,22 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [startTime, setStartTime] = useState(0);
-  const [baseDisplayTime, setBaseDisplayTime] = useState(900 - (difficulty * 80)); // baseline adaptive
-  const [wordDisplayTime, setWordDisplayTime] = useState(900 - (difficulty * 80));
-  const [sequenceLength, setSequenceLength] = useState(4 + difficulty); // start slightly shorter
+  const [level, setLevel] = useState(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'word_race_rsvp', level, setLevel });
+
+  const getDisplayTimeForLevel = (lvl: number) => Math.max(900 - lvl * 80, 180);
+  const getSequenceLengthForLevel = (lvl: number) => Math.min(4 + lvl, 12);
+
+  const [wordDisplayTime, setWordDisplayTime] = useState(getDisplayTimeForLevel(level));
+  const [sequenceLength, setSequenceLength] = useState(getSequenceLengthForLevel(level));
   const [streak, setStreak] = useState(0);
   const [sequenceHistory, setSequenceHistory] = useState<Array<{words: string[]; target: string; correct: boolean}>>([]);
+
+  useEffect(() => {
+    setWordDisplayTime(getDisplayTimeForLevel(level));
+    setSequenceLength(getSequenceLengthForLevel(level));
+  }, [level]);
+
   const maxAttempts = 10;
 
   const generateSequence = useCallback(() => {
@@ -89,15 +101,10 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     if (isCorrect) {
       setScore(prev => prev + 1);
       setStreak(prev => prev + 1);
-      // Adaptive: gently speed up & increase length every 2 streak
-      if ((streak + 1) % 2 === 0) {
-        setWordDisplayTime(prev => Math.max(prev - 40, 180));
-        setSequenceLength(prev => Math.min(prev + 1, 12));
-      }
+      setLevel(prev => prev + 1);
     } else {
       setStreak(0);
-      setWordDisplayTime(prev => Math.min(prev + 60, 1400));
-      setSequenceLength(prev => Math.max(prev - 1, 3));
+      setLevel(prev => Math.max(1, prev - 1));
     }
 
     setGamePhase('feedback');
@@ -106,9 +113,9 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
       if (newAttempts >= maxAttempts) {
         const accuracy = newAttempts > 0 ? ( (score + (isCorrect ? 1 : 0)) / newAttempts) * 100 : 0;
         const duration = (Date.now() - startTime) / 1000;
-        const xp = computeGameXp('word_race_rsvp' as any, { score: score + (isCorrect ? 1 : 0), accuracy, level: difficulty });
+        const xp = computeGameXp('word_race_rsvp' as any, { score: score + (isCorrect ? 1 : 0), accuracy, level });
         if (user) {
-          recordGameRun({ userId: user.id, gameCode: 'word_race_rsvp', level: difficulty, score: score + (isCorrect ? 1 : 0), accuracy, durationSec: duration, params: { attempts: newAttempts } });
+          recordGameRun({ userId: user.id, gameCode: 'word_race_rsvp', level, score: score + (isCorrect ? 1 : 0), accuracy, durationSec: duration, params: { attempts: newAttempts } });
           awardXp(user.id, xp, 'game', { game: 'word_race_rsvp' });
         }
         trackEvent(user?.id, 'game_end', { game: 'word_race_rsvp', score: score + (isCorrect ? 1 : 0), accuracy, attempts: newAttempts });
@@ -118,7 +125,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
         setGamePhase('ready');
       }
     }, 1600);
-  }, [gamePhase, targetWord, attempts, score, startTime, onComplete, sequenceLength, wordDisplayTime, streak, user, difficulty, currentWords]);
+    }, [gamePhase, targetWord, attempts, score, startTime, onComplete, sequenceLength, wordDisplayTime, streak, user, level, currentWords]);
 
   useEffect(() => {
     if (gamePhase === 'showing' && currentWords.length > 0) {
@@ -224,9 +231,9 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
                   </div>
                 ))}
               </div>
-              <Button onClick={() => { setAttempts(0); setScore(0); setStreak(0); setSequenceHistory([]); setSequenceLength(4 + difficulty); setWordDisplayTime(baseDisplayTime); setGamePhase('ready'); }}>
-                Reiniciar Sesión
-              </Button>
+                <Button onClick={() => { setAttempts(0); setScore(0); setStreak(0); setSequenceHistory([]); setGamePhase('ready'); }}>
+                  Reiniciar Sesión
+                </Button>
             </div>
           )}
         </CardContent>
