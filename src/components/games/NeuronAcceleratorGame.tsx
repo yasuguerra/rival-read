@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 
 interface NeuronAcceleratorGameProps {
   onComplete: (score: number, accuracy: number, duration: number) => void;
@@ -11,6 +13,10 @@ interface NeuronAcceleratorGameProps {
 }
 
 export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: NeuronAcceleratorGameProps) {
+  const { user } = useAuth();
+  const [level, setLevel] = useState<number>(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'neuron_accelerator', level, setLevel });
+
   const [gamePhase, setGamePhase] = useState<'ready' | 'playing' | 'feedback'>('ready');
   const [currentTask, setCurrentTask] = useState<'stroop' | 'flanker'>('stroop');
   const [stimulus, setStimulus] = useState('');
@@ -23,42 +29,44 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: Ne
   const [reactionTimes, setReactionTimes] = useState<number[]>([]);
   const [trialStartTime, setTrialStartTime] = useState(0);
 
-  const colors = ['rojo', 'azul', 'verde', 'amarillo'];
+  const allColors = ['rojo', 'azul', 'verde', 'amarillo'];
+  const colors = allColors.slice(0, Math.min(level + 1, allColors.length));
   const colorClasses = {
     'rojo': 'text-red-500',
-    'azul': 'text-blue-500', 
+    'azul': 'text-blue-500',
     'verde': 'text-green-500',
     'amarillo': 'text-yellow-500'
-  };
+  } as const;
 
-  const arrows = ['<<<<', '>>>>', '<<>>', '><><'];
-  const directions = ['izquierda', 'derecha'];
+  const trialsPerGame = 20 + (level - 1) * 5;
+  const feedbackDuration = Math.max(350 - (level - 1) * 20, 150);
 
   const generateStroopTrial = useCallback(() => {
     const word = colors[Math.floor(Math.random() * colors.length)];
     const color = colors[Math.floor(Math.random() * colors.length)];
-    
+
     setStimulus(word);
     setStimulusColor(color);
     setCorrectAnswer(color); // Answer based on color, not word
     setTrialStartTime(Date.now());
-  }, []);
+  }, [colors]);
 
   const generateFlankerTrial = useCallback(() => {
-    const pattern = arrows[Math.floor(Math.random() * arrows.length)];
+    const arrowPatterns = level < 3 ? ['<<<<', '>>>>'] : ['<<<<', '>>>>', '<<>>', '><><'];
+    const pattern = arrowPatterns[Math.floor(Math.random() * arrowPatterns.length)];
     const centerArrow = pattern[2]; // Middle character
     const direction = centerArrow === '<' ? 'izquierda' : 'derecha';
-    
+
     setStimulus(pattern);
     setStimulusColor('');
     setCorrectAnswer(direction);
     setTrialStartTime(Date.now());
-  }, []);
+  }, [level]);
 
   const generateTrial = useCallback(() => {
     const taskType = Math.random() > 0.5 ? 'stroop' : 'flanker';
     setCurrentTask(taskType);
-    
+
     if (taskType === 'stroop') {
       generateStroopTrial();
     } else {
@@ -93,16 +101,19 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: Ne
     setStimulusColor('');
 
     setTimeout(() => {
-      if (currentTrial >= 20) {
+      if (currentTrial >= trialsPerGame) {
         const duration = (Date.now() - startTime) / 1000;
         const accuracy = newAttempts === 0 ? 0 : (score / newAttempts) * 100;
+        const newLevel =
+          accuracy >= 80 ? level + 1 : accuracy < 50 ? Math.max(1, level - 1) : level;
+        setLevel(newLevel);
         onComplete(score, accuracy, duration);
       } else {
         setCurrentTrial(prev => prev + 1);
         setGamePhase('playing');
         generateTrial();
       }
-    }, 350);
+    }, feedbackDuration);
   };
 
   const getAverageReactionTime = () => {
@@ -127,7 +138,7 @@ export function NeuronAcceleratorGame({ onComplete, difficulty = 1, onBack }: Ne
               </p>
               {gamePhase === 'playing' && (
                 <div className="flex justify-center gap-4 text-sm mt-2">
-                  <Badge variant="outline">Trial: {currentTrial}/20</Badge>
+                  <Badge variant="outline">Trial: {currentTrial}/{trialsPerGame}</Badge>
                   <Badge variant="outline">Puntos: {score}</Badge>
                   <Badge variant="outline">TR Promedio: {getAverageReactionTime()}ms</Badge>
                 </div>
