@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Loader2 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
+import * as pdfjsLib from 'pdfjs-dist';
 
 interface TextUploadModalProps {
   open: boolean;
@@ -19,6 +20,28 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
   const [error, setError] = useState<string | null>(null);
   const maxChars = 8000;
 
+  // Configure pdf.js worker once
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // With Vite, append ?url to get the URL string to the worker asset
+        const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+        if (!cancelled) {
+          // Assign the URL for the worker; pdfjs will instantiate it
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (pdfjsLib as any).GlobalWorkerOptions.workerSrc = worker.default;
+        }
+      } catch (e) {
+        // Non-fatal: we'll fallback to main-thread parsing (slow) if needed
+        console.warn('Failed to load pdf.js worker', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -29,7 +52,21 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
         const text = await file.text();
         setRawText(text.slice(0, maxChars));
       } else if (file.type === 'application/pdf') {
-        setError('Soporte PDF pendiente (próxima iteración). Usa .txt por ahora.');
+        // Parse PDF text using pdfjs
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        const maxPages = Math.min(pdf.numPages, 50); // simple guard
+        for (let i = 1; i <= maxPages && fullText.length < maxChars; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const strings = content.items
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((it: any) => ('str' in it ? (it as any).str : ''))
+            .filter(Boolean) as string[];
+          fullText += strings.join(' ') + '\n\n';
+        }
+        setRawText(fullText.slice(0, maxChars));
       } else {
         setError('Formato no soportado. Usa .txt (PDF próximamente).');
       }
