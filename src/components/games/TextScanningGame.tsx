@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 import { recordGameRun } from '@/services/gameRuns';
 import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
@@ -13,8 +14,12 @@ interface TextScanningGameProps {
   onBack?: () => void;
 }
 
-export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextScanningGameProps) {
+export function TextScanningGame({ onComplete, difficulty: initialDifficulty = 1, onBack }: TextScanningGameProps) {
   const { user } = useAuth();
+  const [level, setLevel] = useState<number>(Math.max(1, Math.floor(initialDifficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'text_scanning', level, setLevel });
+  const difficulty = level;
+
   const [gamePhase, setGamePhase] = useState<'ready' | 'playing' | 'feedback'>('ready');
   const [targetWords, setTargetWords] = useState<string[]>([]);
   const [textContent, setTextContent] = useState('');
@@ -58,12 +63,12 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
   const startGame = useCallback(() => {
     setScore(0);
     setErrors(0);
-  setCurrentRound(1);
+    setCurrentRound(1);
     setStartTime(Date.now());
     setGamePhase('playing');
     generateRound();
     trackEvent(user?.id, 'game_start', { game: 'text_scanning', difficulty });
-  }, [generateRound]);
+  }, [generateRound, difficulty, user?.id]);
 
   const highlightText = () => {
     let highlightedText = textContent;
@@ -139,6 +144,11 @@ export function TextScanningGame({ onComplete, difficulty = 1, onBack }: TextSca
       trackEvent(user?.id, 'game_end', { game: 'text_scanning', score, accuracy: accuracyPct });
     } catch (e) {
       console.error('Failed to finalize text scanning game', e);
+    }
+    if (accuracyPct >= 80) {
+      setLevel(prev => prev + 1);
+    } else if (accuracyPct < 50) {
+      setLevel(prev => Math.max(1, prev - 1));
     }
     onComplete(score, accuracyPct, duration);
   };
