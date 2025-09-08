@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Search, Clock, Target, Zap, ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 
 interface LetterSearchGameProps {
   onComplete: (score: number, accuracy: number, durationSec: number) => void;
@@ -12,10 +14,14 @@ interface LetterSearchGameProps {
 }
 
 export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearchGameProps) {
-  const gridSize = Math.min(8 + Math.floor(difficulty), 12); // 8x8 to 12x12
-  const targetCount = Math.min(3 + Math.floor(difficulty / 2), 6); // 3-6 targets
+  const { user } = useAuth();
+  const [level, setLevel] = useState(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'letter_search', level, setLevel });
+
+  const gridSize = Math.min(8 + Math.floor(level), 12); // 8x8 to 12x12
+  const targetCount = Math.min(3 + Math.floor(level / 2), 6); // 3-6 targets
   // New: enforce at least 60s duration (before was 30→15). We keep a simple scaling above 60 if needed.
-  const gameTimeLimit = 60; // fixed 1 minute per requirement (can later scale with difficulty)
+  const gameTimeLimit = 60; // fixed 1 minute per requirement (can later scale with level)
   
   const [grid, setGrid] = useState<string[]>([]);
   const [targetLetters, setTargetLetters] = useState<string[]>([]);
@@ -65,11 +71,15 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
   setFoundTargets(new Set());
   }, [gridSize, targetCount]);
 
-  // Initialize game
+  // Initialize game and regenerate on level changes
   useEffect(() => {
     generateGame();
+  }, [level, generateGame]);
+
+  // Set start time once when component mounts
+  useEffect(() => {
     setStartTime(new Date());
-  }, [generateGame]);
+  }, []);
 
   // Timer effect
   useEffect(() => {
@@ -106,7 +116,7 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
       if (newFoundTargets.size >= totalTargetsInGrid) {
         // Round complete: start a new one (do not end game, keep timer running)
         setRounds(r => r + 1);
-        generateGame();
+        setLevel(l => l + 1);
         return;
       }
     } else if (!targetLetters.includes(letter)) {
