@@ -18,6 +18,8 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const maxChars = 8000;
+  const maxPages = 10;
+  const maxFileSize = 5 * 1024 * 1024; // 5MB
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -27,11 +29,31 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
     try {
       if (file.type === 'text/plain') {
         const text = await file.text();
-        setRawText(text.slice(0, maxChars));
+        setRawText(cleanText(text).slice(0, maxChars));
       } else if (file.type === 'application/pdf') {
-        setError('Soporte PDF pendiente (próxima iteración). Usa .txt por ahora.');
+        if (file.size > maxFileSize) {
+          setError('PDF demasiado grande (máx 5MB).');
+          return;
+        }
+        try {
+          const pdfjsLib = await import('pdfjs-dist');
+          const workerSrc = await import('pdfjs-dist/build/pdf.worker.min.js?url');
+          pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc.default;
+          const data = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data }).promise;
+          let text = '';
+          const pages = Math.min(pdf.numPages, maxPages);
+          for (let i = 1; i <= pages && text.length < maxChars; i++) {
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            text += content.items.map(item => ('str' in item ? item.str : '')).join(' ') + ' ';
+          }
+          setRawText(cleanText(text).slice(0, maxChars));
+        } catch {
+          setError('No se pudo leer el PDF.');
+        }
       } else {
-        setError('Formato no soportado. Usa .txt (PDF próximamente).');
+        setError('Formato no soportado. Usa .txt o .pdf.');
       }
     } catch (err) {
       setError('No se pudo leer el archivo.');
@@ -56,7 +78,7 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
       setFileName('');
     } catch (e) {
       setError('Error procesando el texto.');
-      toast({ title: 'Error', description: 'No se pudo procesar el texto', variant: 'destructive' as any });
+      toast({ title: 'Error', description: 'No se pudo procesar el texto', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -68,7 +90,7 @@ export function TextUploadModal({ open, onOpenChange, onProcess }: TextUploadMod
         <DialogHeader>
           <DialogTitle>Subir Texto</DialogTitle>
           <DialogDescription>
-            Pega o sube un archivo .txt (máx {maxChars.toLocaleString()} caracteres). PDF llegará pronto.
+            Pega o sube un .txt o .pdf (máx {maxChars.toLocaleString()} caracteres, 5MB y {maxPages} páginas).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">

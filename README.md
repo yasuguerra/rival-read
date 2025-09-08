@@ -60,6 +60,15 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## PDF Upload Limitations
+
+Basic PDF text extraction is supported via `pdfjs-dist` with these constraints:
+
+- Only the first 10 pages of a document are processed.
+- Files larger than 5 MB are rejected.
+- Only textual content is extracted; complex layouts or images are ignored.
+- Extracted text is cleaned and limited to 8,000 characters.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/b7d5699d-c2dd-4a4b-8fd2-ee9995d6915c) and click on Share -> Publish.
