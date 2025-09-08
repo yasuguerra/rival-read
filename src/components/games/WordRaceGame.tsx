@@ -8,11 +8,19 @@ import { useAuth } from '@/hooks/useAuth';
 import { recordGameRun } from '@/services/gameRuns';
 import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
 
 interface WordRaceGameProps {
   onComplete: (score: number, accuracy: number, durationSec: number) => void;
   difficulty: number;
   onBack?: () => void;
+}
+
+interface Question {
+  type: string;
+  question: string;
+  correct: number;
+  options: string[];
 }
 
 const sampleTexts = [
@@ -25,8 +33,10 @@ const sampleTexts = [
 
 export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGameProps) {
   const { user } = useAuth();
-  const baseWPM = 150 + (difficulty * 25); // 150-400 WPM range
-  const wordsPerChunk = Math.min(1 + Math.floor(difficulty / 2), 3); // 1-3 words per chunk
+  const [level, setLevel] = useState<number>(Math.max(1, Math.floor(difficulty)));
+  usePersistentGameLevel({ userId: user?.id, gameCode: 'word_race', level, setLevel });
+  const baseWPM = 150 + (level * 25); // 150-400 WPM range
+  const wordsPerChunk = Math.min(1 + Math.floor(level / 2), 3); // 1-3 words per chunk
   
   const [text, setText] = useState('');
   const [words, setWords] = useState<string[]>([]);
@@ -34,14 +44,18 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
   const [isPlaying, setIsPlaying] = useState(false);
   const [wpm, setWpm] = useState(baseWPM);
   const [startTime, setStartTime] = useState<Date | null>(null);
-  const [questions, setQuestions] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<boolean[]>([]);
   const [showQuestions, setShowQuestions] = useState(false);
   const [canGoBack, setCanGoBack] = useState(true);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
 
-  const generateQuestions = useCallback((textContent: string) => {
+  useEffect(() => {
+    setWpm(baseWPM);
+  }, [baseWPM]);
+
+  const generateQuestions = useCallback((textContent: string): Question[] => {
     const sentences = textContent.split('.').filter(s => s.trim().length > 10);
     const questionTemplates = [
       {
@@ -101,7 +115,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
   const handlePlay = () => {
     if (!startTime) {
       setStartTime(new Date());
-      trackEvent(user?.id, 'game_start', { game: 'word_race', difficulty });
+      trackEvent(user?.id, 'game_start', { game: 'word_race', level });
     }
     setIsPlaying(true);
   };
@@ -136,26 +150,30 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
     } else {
       // Complete game
       const duration = startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 60;
-  const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
-  const accuracyPct = accuracy * 100;
+      const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
+      const accuracyPct = accuracy * 100;
       const readingWPM = words.length / (duration / 60);
       const score = Math.round(readingWPM * accuracy * 10);
-      const xp = computeGameXp('word_race', { wpm: readingWPM, accuracy, score, level: difficulty });
+      const xp = computeGameXp('word_race', { wpm: readingWPM, accuracy, score, level });
       if (user) {
         await recordGameRun({
           userId: user.id,
           gameCode: 'word_race',
-          level: difficulty,
-            score,
-    accuracy: accuracyPct,
-            durationSec: duration,
-            params: { readingWPM }
+          level,
+          score,
+          accuracy: accuracyPct,
+          durationSec: duration,
+          params: { readingWPM }
         });
       }
       awardXp(user?.id, xp, 'game', { game: 'word_race' });
       trackEvent(user?.id, 'wpm_measured', { game: 'word_race', wpm: readingWPM });
-  trackEvent(user?.id, 'game_end', { game: 'word_race', score, accuracy: accuracyPct });
-  onComplete(score, accuracyPct, duration);
+      trackEvent(user?.id, 'game_end', { game: 'word_race', score, accuracy: accuracyPct, level });
+      let newLevel = level;
+      if (accuracy >= 0.8) newLevel = level + 1;
+      else if (accuracy < 0.5) newLevel = Math.max(1, level - 1);
+      if (newLevel !== level) setLevel(newLevel);
+      onComplete(score, accuracyPct, duration);
     }
   };
 
