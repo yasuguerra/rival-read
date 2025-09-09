@@ -49,8 +49,10 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
   const config = GAME_CONFIG.levels[level as keyof typeof GAME_CONFIG.levels];
   const words = WORD_BANK.runningWords['es'];
   const showLineNumbers = level < 8;
-  // Add lines with level: 1 line at L1, up to 5 lines by L17+ (every 4 levels adds a line)
-  const linesCount = Math.min(5, 1 + Math.floor((level - 1) / 4));
+  // New rules: level adds one total word (max 20); each line has up to 4 words; max 5 lines
+  const MAX_WORDS_PER_LINE = 4;
+  const totalWordsLevel = Math.min(20, Math.max(1, Math.floor(level)));
+  const previewLinesCount = Math.min(5, Math.ceil(totalWordsLevel / MAX_WORDS_PER_LINE));
 
   // FSM
   const [phase, setPhase] = useState<'idle' | 'showing' | 'question' | 'summary'>('idle');
@@ -59,7 +61,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   // Stable per-round config to avoid mid-round level changes breaking RSVP
   const roundConfigRef = useRef(config);
-  const roundLinesCountRef = useRef(linesCount);
+  const roundLinesCountRef = useRef<number>(0);
 
   // Question state
   const [question, setQuestion] = useState<{ askedLine: number; correct: string; choices: string[]; correctIndex: number; askedWordIdx?: number } | null>(null);
@@ -81,17 +83,28 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
   const accuracy = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
 
   const generateBlock = useCallback(() => {
+    const total = totalWordsLevel;
+    const fullLines = Math.floor(total / MAX_WORDS_PER_LINE);
+    const remainder = total % MAX_WORDS_PER_LINE;
     const block: string[][] = [];
-    for (let i = 0; i < linesCount; i++) {
+    for (let i = 0; i < fullLines; i++) {
       const line: string[] = [];
-      for (let j = 0; j < config.wordsPerLine; j++) {
+      for (let j = 0; j < MAX_WORDS_PER_LINE; j++) {
+        const w = words[Math.floor(Math.random() * words.length)];
+        line.push(w);
+      }
+      block.push(line);
+    }
+    if (remainder > 0) {
+      const line: string[] = [];
+      for (let j = 0; j < remainder; j++) {
         const w = words[Math.floor(Math.random() * words.length)];
         line.push(w);
       }
       block.push(line);
     }
     return block;
-  }, [config.wordsPerLine, words, linesCount]);
+  }, [MAX_WORDS_PER_LINE, totalWordsLevel, words]);
 
   const generateQuestion = useCallback((block: string[][]) => {
     // Level 1: ask for a random word from the single line
@@ -146,24 +159,25 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     const block = generateBlock();
     // Freeze current config for this round
     roundConfigRef.current = config;
-    roundLinesCountRef.current = linesCount;
     setLines(block);
+    roundLinesCountRef.current = block.length;
     setCurrentLine(0);
     setCurrentWordIndex(0);
   setQuestion(null);
     setSelected(null);
     setPhase('showing');
-  }, [generateBlock, startMs, config, linesCount]);
+  }, [generateBlock, startMs, config]);
 
   // RSVP display loop
   useEffect(() => {
     if (phase !== 'showing') return;
-    // Guard: wait until lines are ready for the current round's config
-    const expectedLines = roundLinesCountRef.current;
-    const expectedWPL = roundConfigRef.current.wordsPerLine;
-    if (lines.length !== expectedLines || lines.some((l) => l.length !== expectedWPL)) return;
-    const atLastWord = currentWordIndex >= expectedWPL - 1;
-    const atLastLine = currentLine >= expectedLines - 1;
+  // Guard: wait until lines are ready for the current round
+  const expectedLines = roundLinesCountRef.current;
+  if (!lines.length || lines.length !== expectedLines) return;
+  const lineLen = lines[currentLine]?.length ?? 0;
+  if (lineLen === 0) return;
+  const atLastWord = currentWordIndex >= lineLen - 1;
+  const atLastLine = currentLine >= (expectedLines - 1);
     const timer = setTimeout(() => {
       if (!atLastWord) {
         setCurrentWordIndex((p) => p + 1);
@@ -177,7 +191,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
         setPhase('question');
         questionStartTime.current = Date.now();
       }
-    }, roundConfigRef.current.wordExposureMs);
+  }, roundConfigRef.current.wordExposureMs);
     return () => clearTimeout(timer);
   }, [phase, currentLine, currentWordIndex, lines, generateQuestion]);
 
@@ -188,8 +202,10 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     const isCorrect = idx === question.correctIndex;
 
     // score
-    const base = config.wordsPerLine;
-    const speedBonus = isCorrect ? Math.ceil(Math.max(0, (config.goalRT - rt) / config.goalRT * config.wordsPerLine)) : 0;
+  const askedLineIdx = (question.askedLine ?? 1) - 1;
+  const askedLen = lines[askedLineIdx]?.length ?? MAX_WORDS_PER_LINE;
+  const base = askedLen;
+  const speedBonus = isCorrect ? Math.ceil(Math.max(0, (config.goalRT - rt) / config.goalRT * askedLen)) : 0;
     const newStreak = isCorrect ? streak + 1 : 0;
     const streakBonus = isCorrect && newStreak >= 3 ? Math.floor(newStreak / 3) * 2 : 0;
     setScore((s) => s + base + speedBonus + streakBonus);
@@ -215,16 +231,19 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
       if (attempts + 1 >= maxAttempts) {
         // auto-complete
         const duration = startMs ? Math.round((Date.now() - startMs) / 1000) : 0;
-        const meanRT = responseTs.concat([rt]).reduce((a, b) => a + b, 0) / (responseTs.length + 1);
-        const wordsProcessed = (totalRounds + 1) * linesCount * config.wordsPerLine;
+    const meanRT = responseTs.concat([rt]).reduce((a, b) => a + b, 0) / (responseTs.length + 1);
+    const thisRoundWords = lines.reduce((s, l) => s + l.length, 0);
+    const prevWords = history.reduce((s, h) => s + h.lines.reduce((a, l) => a + l.length, 0), 0);
+    const wordsProcessed = prevWords + thisRoundWords;
         const summary = {
           gameId: GAME_IDS.RUNNING_WORDS,
           score: score + base + speedBonus + streakBonus,
           level: nextLevel,
           accuracy: ((correctAnswers + (isCorrect ? 1 : 0)) / (totalRounds + 1)) * 100,
           extras: {
-            wordsPerLine: config.wordsPerLine,
-            wordExposureMs: config.wordExposureMs,
+      maxWordsPerLine: MAX_WORDS_PER_LINE,
+      totalWordsThisRound: thisRoundWords,
+      wordExposureMs: roundConfigRef.current.wordExposureMs,
             totalRounds: totalRounds + 1,
             meanRT,
             responseTs: responseTs.concat([rt]),
@@ -240,7 +259,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
         startRound();
       }
     }, 1200);
-  }, [question, selected, config, streak, startRound, attempts, startMs, responseTs, totalRounds, score, level, correctAnswers, streakBest, lines, linesCount]);
+  }, [question, selected, config, streak, startRound, attempts, startMs, responseTs, totalRounds, score, level, correctAnswers, streakBest, lines]);
 
   // Start on enter from host screen
   useEffect(() => {
@@ -249,13 +268,16 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
 
   // Derived view state
   const progress = phase === 'showing'
-    ? (((currentLine * (roundConfigRef.current.wordsPerLine || 1)) + currentWordIndex) / ((roundLinesCountRef.current || 1) * (roundConfigRef.current.wordsPerLine || 1))) * 100
+    ? (() => {
+        const total = lines.reduce((s, l) => s + l.length, 0) || 1;
+        const past = lines.slice(0, currentLine).reduce((s, l) => s + l.length, 0);
+        return ((past + currentWordIndex) / total) * 100;
+      })()
     : (attempts / maxAttempts) * 100;
-  const wordsProcessed = totalRounds * linesCount * config.wordsPerLine;
+  const wordsProcessed = history.reduce((s, h) => s + h.lines.reduce((a, l) => a + l.length, 0), 0);
 
   // Stable counts for rendering to avoid flicker/mismatch on mid-round level changes
-  const renderLinesCount = phase === 'showing' ? (roundLinesCountRef.current || lines.length) : linesCount;
-  const renderWordsPerLine = phase === 'showing' ? (roundConfigRef.current.wordsPerLine || config.wordsPerLine) : config.wordsPerLine;
+  const renderLinesCount = phase === 'showing' ? (roundLinesCountRef.current || lines.length) : previewLinesCount;
 
   // Finish helper
   const complete = useCallback(() => {
@@ -267,8 +289,8 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
       level,
       accuracy,
       extras: {
-        wordsPerLine: config.wordsPerLine,
-        wordExposureMs: config.wordExposureMs,
+    maxWordsPerLine: MAX_WORDS_PER_LINE,
+    wordExposureMs: config.wordExposureMs,
         totalRounds,
         meanRT,
         responseTs,
@@ -279,7 +301,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
     updateGameProgress(GAME_IDS.RUNNING_WORDS, summary as any);
     onComplete(score, accuracy, duration);
     setPhase('summary');
-  }, [accuracy, config.wordExposureMs, config.wordsPerLine, level, responseTs, score, startMs, streakBest, totalRounds, wordsProcessed, onComplete]);
+  }, [accuracy, config.wordExposureMs, level, responseTs, score, startMs, streakBest, totalRounds, wordsProcessed, onComplete, MAX_WORDS_PER_LINE]);
 
   // UI
   return (
@@ -294,7 +316,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
             )}
             <div className="flex-1 text-center">
               <CardTitle className="text-2xl">Running Words</CardTitle>
-              <p className="text-sm text-muted-foreground">Nivel {level} • {config.wordsPerLine} palabras/línea • {config.wordExposureMs}ms</p>
+              <p className="text-sm text-muted-foreground">Nivel {level} • hasta 4 palabras/línea • {config.wordExposureMs}ms</p>
               <p className="text-xs text-muted-foreground">Puntuación: {score} • Precisión: {Math.round(accuracy)}%</p>
             </div>
           </div>
@@ -302,7 +324,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
         <CardContent className="space-y-6">
           {phase === 'idle' && (
             <div className="text-center space-y-4">
-              <p className="text-muted-foreground">Memoriza palabras en {linesCount} {linesCount === 1 ? 'línea' : 'líneas'}. Luego responde la última palabra de una línea al azar.</p>
+              <p className="text-muted-foreground">Memoriza {totalWordsLevel} palabra{totalWordsLevel !== 1 ? 's' : ''} en {previewLinesCount} {previewLinesCount === 1 ? 'línea' : 'líneas'}. Luego responde la última palabra de una línea al azar.</p>
               <Button className="bg-gradient-primary" onClick={() => { startRound(); }}>
                 Comenzar
               </Button>
@@ -311,13 +333,13 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
 
       {phase === 'showing' && (
             <div className="space-y-4">
-        {Array.from({ length: renderLinesCount }, (_, i) => (
+      {Array.from({ length: renderLinesCount }, (_, i) => (
                 <div key={i} className="flex items-center justify-center gap-2 h-10 sm:h-12">
                   {showLineNumbers && (
                     <span className="w-6 text-xs sm:w-8 sm:text-sm text-muted-foreground text-right">{i + 1}.</span>
                   )}
     <div className="flex gap-3 min-w-0 flex-1 justify-center">
-          {Array.from({ length: renderWordsPerLine }, (_, j) => {
+        {Array.from({ length: lines[i]?.length ?? 0 }, (_, j) => {
                       const state = i < currentLine || (i === currentLine && j < currentWordIndex)
                         ? 'past'
                         : i === currentLine && j === currentWordIndex
@@ -344,7 +366,7 @@ export function WordRaceRSVPGame({ onComplete, difficulty = 1, onBack }: WordRac
           {phase === 'question' && question && (
             <div className="text-center space-y-4">
               <h3 className="text-lg sm:text-xl font-semibold">
-                {linesCount === 1
+                {lines.length === 1
                   ? `¿Cuál fue la palabra número ${question.askedWordIdx !== undefined ? question.askedWordIdx + 1 : '?'} de la línea?`
                   : `¿Cuál fue la última palabra de la línea ${question.askedLine}?`}
               </h3>
