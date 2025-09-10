@@ -71,3 +71,11 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+
+## Environment variables
+
+Set these in your environment (e.g., Vercel → Project Settings → Environment Variables):
+
+- VITE_SUPABASE_URL
+- VITE_SUPABASE_ANON_KEY
+- VITE_PUBLIC_SITE_URL (e.g., https://rival-read.vercel.app)

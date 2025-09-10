@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { SITE_URL } from '@/config/site';
 import { useToast } from '@/hooks/use-toast';
 
 export function useAuth() {
@@ -32,11 +33,11 @@ export function useAuth() {
   const signUp = async (email: string, password: string, displayName: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
+      emailRedirectTo: `${SITE_URL}/`,
           data: {
             display_name: displayName
           }
