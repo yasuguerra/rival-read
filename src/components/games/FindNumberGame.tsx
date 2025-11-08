@@ -6,12 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface FindNumberGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty?: number;
   onBack?: () => void;
 }
@@ -186,8 +185,6 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
             setLevel(newLevel);
             saveLevelProgress(newLevel);
             setShowLevelUp(true);
-            const levelXp = computeGameXp('find_number', { score, level: newLevel });
-            awardXp(user?.id, levelXp, 'game', { game: 'find_number', event: 'level_complete' });
             trackEvent(user?.id, 'level_up', { game: 'find_number', newLevel });
             setTimeout(() => {
               setShowLevelUp(false);
@@ -214,25 +211,20 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
     setSelectedPath([]);
   };
 
-  const handleGameEnd = async () => {
+  const handleGameEnd = () => {
     if (!startTime) return;
   const duration = (Date.now() - startTime.getTime()) / 1000;
-  const accuracyPct = score > 0 ? (score / (score + errors * 5)) * 100 : 0;
-    if (user) {
-      await recordGameRun({
-        userId: user.id,
-        gameCode: 'find_number',
-        level,
-        score,
-    accuracy: accuracyPct,
-        durationSec: duration,
-        params: { errors, sequencesFound }
-      });
-    }
-  const xp = computeGameXp('find_number', { score, accuracy: accuracyPct, level });
-  awardXp(user?.id, xp, 'game', { game: 'find_number' });
-  trackEvent(user?.id, 'game_end', { game: 'find_number', level, score, accuracy: accuracyPct });
-  onComplete(score, accuracyPct, duration);
+    const accuracy = score > 0 ? score / (score + errors * 5) : 0;
+    trackEvent(user?.id, 'game_end', { game: 'find_number', level, score, accuracy: accuracy * 100 });
+    const extras: GameCompleteExtras = {
+      level,
+      metrics: {
+        errors,
+        sequencesFound,
+        totalSequences
+      }
+    };
+    onComplete(score, accuracy, duration, extras);
   };
 
   const startGame = () => {

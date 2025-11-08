@@ -4,6 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ArrowLeft, Play, Zap, Brain, Target } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import { filterImplementedGames } from '@/lib/game-registry';
+import { processGameResult } from '@/services/gameResults';
+import type { GameCompleteExtras } from '@/types/games';
 import SchulteGame from './games/SchulteGame';
 import { LetterSearchGame } from './games/LetterSearchGame';
 import { WordRaceGame } from './games/WordRaceGame';
@@ -38,6 +42,7 @@ export function GamePractice({ onBack }: GamePracticeProps) {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
   useEffect(() => {
     loadGames();
@@ -52,14 +57,7 @@ export function GamePractice({ onBack }: GamePracticeProps) {
       if (error) throw error;
 
       // Solo mostrar juegos implementados
-      const implementedGameCodes = [
-        'schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain',
-        'twin_words', 'even_odd', 'anagrams', 'find_number', 'visual_field', 'find_words',
-        'text_scanning', 'reading_accelerator', 'neuron_accelerator'
-      ];
-      const availableGames = gamesData?.filter(game => 
-        implementedGameCodes.includes(game.code)
-      ) || [];
+      const availableGames = gamesData ? filterImplementedGames(gamesData) : [];
 
       setGames(availableGames);
     } catch (error) {
@@ -88,14 +86,47 @@ export function GamePractice({ onBack }: GamePracticeProps) {
     }
   };
 
+  const handlePracticeComplete = async (
+    score: number,
+    accuracy: number,
+    durationSec: number,
+    extras?: GameCompleteExtras
+  ) => {
+    if (!selectedGame) return;
+
+    try {
+      const { xpAwarded, normalizedAccuracy } = await processGameResult({
+        userId: user?.id,
+        gameCode: selectedGame.code,
+        score,
+        accuracy,
+        durationSec,
+        level: extras?.level,
+        extras
+      });
+
+      toast({
+        title: 'Juego completado',
+        description: `+${xpAwarded} XP • ${Math.round(normalizedAccuracy * 100)}% precisión`
+      });
+    } catch (error) {
+      console.error('Error recording practice game', error);
+      toast({
+        title: 'No se pudo guardar el resultado',
+        description: 'Revisa tu conexión y vuelve a intentarlo.',
+        variant: 'destructive'
+      });
+    } finally {
+      setGameStarted(false);
+      setSelectedGame(null);
+    }
+  };
+
   const getGameComponent = () => {
     if (!selectedGame) return null;
 
     const gameProps = {
-      onComplete: () => {
-        setGameStarted(false);
-        setSelectedGame(null);
-      },
+      onComplete: handlePracticeComplete,
       difficulty: 1,
       onBack: () => {
         setGameStarted(false);

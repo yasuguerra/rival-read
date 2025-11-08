@@ -5,14 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
 import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
 import { getOrGeneratePassage } from '@/services/aiContent';
 import { ArrowLeft } from 'lucide-react';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface ReadingAcceleratorGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty?: number;
   onBack?: () => void;
 }
@@ -125,13 +124,12 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
     });
   };
 
-  const handleAnswer = async (answerIndex: number) => {
+  const handleAnswer = (answerIndex: number) => {
     const newAnswers = [...userAnswers, answerIndex];
     setUserAnswers(newAnswers);
-    
-    if (questions[currentQuestion].correct === answerIndex) {
-      setScore(prev => prev + 1);
-    }
+    const wasCorrect = questions[currentQuestion].correct === answerIndex;
+    const nextScore = wasCorrect ? score + 1 : score;
+    setScore(nextScore);
     
     if (currentQuestion < questions.length - 1) {
       // brief feedback flash before next question
@@ -141,37 +139,28 @@ export function ReadingAcceleratorGame({ onComplete, difficulty = 1, onBack }: R
     } else {
       // All questions answered
       const duration = (Date.now() - startTime) / 1000;
-      const accuracy = (score / questions.length) * 100;
+      const accuracyFraction = questions.length > 0 ? nextScore / questions.length : 0;
+      const accuracyPct = accuracyFraction * 100;
       // Compute WPM based on words shown and total time in minutes
       const wpm = Math.round(words.length / (duration / 60));
-      // XP calculation
-      const xp = computeGameXp('reading_accelerator', { wpm, accuracy, score, level });
-      try {
-        if (user) {
-          await recordGameRun({
-            userId: user.id,
-            gameCode: 'reading_accelerator',
-            level,
-            score,
-            accuracy,
-            durationSec: duration,
-            params: { wpm }
-          });
-        }
-        awardXp(user?.id, xp, 'game', { game: 'reading_accelerator', wpm });
-        trackEvent(user?.id, 'wpm_measured', { game: 'reading_accelerator', wpm, level });
-        trackEvent(user?.id, 'game_end', { game: 'reading_accelerator', score, accuracy, wpm, level });
-      } catch (e) {
-        console.error('Failed to record reading accelerator results', e);
-      }
+      trackEvent(user?.id, 'wpm_measured', { game: 'reading_accelerator', wpm, level });
+      trackEvent(user?.id, 'game_end', { game: 'reading_accelerator', score: nextScore, accuracy: accuracyPct, wpm, level });
 
       // Update level based on comprehension accuracy
-      const nextLevel = accuracy >= 70 ? level + 1 : accuracy < 50 ? Math.max(1, level - 1) : level;
+      const nextLevel = accuracyPct >= 70 ? level + 1 : accuracyPct < 50 ? Math.max(1, level - 1) : level;
       if (nextLevel !== level) {
         setLevel(nextLevel);
       }
 
-      onComplete(score, accuracy, duration);
+      const extras: GameCompleteExtras = {
+        level,
+        metrics: {
+          wpm,
+          questions: questions.length,
+          correctAnswers: nextScore
+        }
+      };
+      onComplete(nextScore, accuracyFraction, duration, extras);
     }
   };
 

@@ -9,6 +9,7 @@ export interface RecordGameRunParams {
   accuracy: number | null;
   durationSec: number | null;
   params?: Record<string, any>;
+  sessionId?: string;
 }
 
 export async function recordGameRun(params: RecordGameRunParams) {
@@ -28,7 +29,8 @@ export async function recordGameRun(params: RecordGameRunParams) {
     score: params.score,
     accuracy: params.accuracy,
     duration_sec: params.durationSec,
-    params_json: params.params || null
+    params_json: params.params || null,
+    session_id: params.sessionId || null
   };
 
   const { error } = await supabase.from('game_runs').insert(insert);

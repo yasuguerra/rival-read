@@ -4,12 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
 import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface TextScanningGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty?: number;
   onBack?: () => void;
 }
@@ -124,33 +123,24 @@ export function TextScanningGame({ onComplete, difficulty: initialDifficulty = 1
     }
   }, [gamePhase, timeLeft]);
 
-  const finalizeGame = async () => {
+  const finalizeGame = () => {
     const duration = (Date.now() - startTime) / 1000;
-    const accuracyPct = score > 0 ? (score / (score + errors)) * 100 : 0;
-    try {
-      if (user) {
-        await recordGameRun({
-          userId: user.id,
-          gameCode: 'text_scanning',
-          level: difficulty,
-          score,
-          accuracy: accuracyPct,
-          durationSec: duration,
-          params: { errors, rounds: currentRound }
-        });
-      }
-      const xp = computeGameXp('text_scanning', { score, accuracy: accuracyPct, level: difficulty });
-      awardXp(user?.id, xp, 'game', { game: 'text_scanning' });
-      trackEvent(user?.id, 'game_end', { game: 'text_scanning', score, accuracy: accuracyPct });
-    } catch (e) {
-      console.error('Failed to finalize text scanning game', e);
-    }
+    const accuracy = score > 0 ? score / (score + errors) : 0;
+    const accuracyPct = accuracy * 100;
+    trackEvent(user?.id, 'game_end', { game: 'text_scanning', score, accuracy: accuracyPct });
     if (accuracyPct >= 80) {
       setLevel(prev => prev + 1);
     } else if (accuracyPct < 50) {
       setLevel(prev => Math.max(1, prev - 1));
     }
-    onComplete(score, accuracyPct, duration);
+    const extras: GameCompleteExtras = {
+      level: difficulty,
+      metrics: {
+        errors,
+        rounds: currentRound
+      }
+    };
+    onComplete(score, accuracy, duration, extras);
   };
 
   const renderClickableText = () => {

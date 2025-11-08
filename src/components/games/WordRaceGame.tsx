@@ -5,13 +5,12 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Play, Pause, RotateCcw, Zap, Brain, Target, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
 import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface WordRaceGameProps {
-  onComplete: (score: number, accuracy: number, durationSec: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty: number;
   onBack?: () => void;
 }
@@ -151,29 +150,23 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
       // Complete game
       const duration = startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 60;
       const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
-      const accuracyPct = accuracy * 100;
       const readingWPM = words.length / (duration / 60);
       const score = Math.round(readingWPM * accuracy * 10);
-      const xp = computeGameXp('word_race', { wpm: readingWPM, accuracy, score, level });
-      if (user) {
-        await recordGameRun({
-          userId: user.id,
-          gameCode: 'word_race',
-          level,
-          score,
-          accuracy: accuracyPct,
-          durationSec: duration,
-          params: { readingWPM }
-        });
-      }
-      awardXp(user?.id, xp, 'game', { game: 'word_race' });
       trackEvent(user?.id, 'wpm_measured', { game: 'word_race', wpm: readingWPM });
-      trackEvent(user?.id, 'game_end', { game: 'word_race', score, accuracy: accuracyPct, level });
+      trackEvent(user?.id, 'game_end', { game: 'word_race', score, accuracy: accuracy * 100, level });
       let newLevel = level;
       if (accuracy >= 0.8) newLevel = level + 1;
       else if (accuracy < 0.5) newLevel = Math.max(1, level - 1);
       if (newLevel !== level) setLevel(newLevel);
-      onComplete(score, accuracyPct, duration);
+      const extras: GameCompleteExtras = {
+        level,
+        metrics: {
+          wpm: Math.round(readingWPM),
+          correctAnswers: newAnswers.filter(Boolean).length,
+          totalQuestions: newAnswers.length
+        }
+      };
+      onComplete(score, accuracy, duration, extras);
     }
   };
 

@@ -8,14 +8,12 @@ import { ArrowLeft, Clock, RotateCcw, Target, Zap } from "lucide-react";
 
 // Servicios (con wrappers seguros para evitar choques de tipos)
 import { trackEvent } from "@/services/analytics";
-import { recordGameRun } from "@/services/gameRuns";
-import { awardXp } from "@/services/xp";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { usePersistentGameLevel } from "@/hooks/usePersistentGameLevel";
+import type { GameCompleteHandler } from "@/types/games";
 
 type SchulteGameProps = {
-  onComplete: (score: number, accuracy: number, durationMs: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty?: number;
   onBack?: () => void;
 };
@@ -51,57 +49,14 @@ function shuffledCells(size: number): Cell[] {
   return nums.map((n) => ({ n, found: false }));
 }
 
-/* ---------- Wrappers seguros (evitan TS 2345/2353 sin romper tipos globales) ---------- */
+/* ---------- Wrapper de analytics (evita choques de tipos con trackEvent dinámico) ---------- */
 type MinimalAnalyticsEvent = { type: string } & Record<string, unknown>;
 const emitEvent = (e: MinimalAnalyticsEvent) => {
   try {
     (trackEvent as unknown as (ev: MinimalAnalyticsEvent) => void)?.(e);
   } catch {}
 };
-
-const recordRun = async (
-  userId: string | undefined,
-  gameKey: string,
-  payload: Record<string, unknown>
-) => {
-  try {
-    await (recordGameRun as unknown as (
-      sb: typeof supabase,
-      uid: string | undefined,
-      game: string,
-      data: Record<string, unknown>
-    ) => Promise<void>)?.(supabase, userId, gameKey, payload);
-  } catch {}
-};
-
-const grantXp = async (
-  userId: string | undefined,
-  xp: number,
-  meta?: Record<string, unknown>
-) => {
-  try {
-    await (awardXp as unknown as (
-      sb: typeof supabase,
-      uid: string | undefined,
-      amount: number,
-      m?: Record<string, unknown>
-    ) => Promise<void>)?.(supabase, userId, xp, meta);
-  } catch {}
-};
-
-// Reemplazo de computeGameXp (evita TS 2353 por shape de ComputeParams distinto)
-function computeXpSimple(metrics: {
-  boardsCompleted: number;
-  found: number;
-  errors: number;
-  accuracy: number;
-}) {
-  const base = metrics.found * (0.5 + 0.5 * metrics.accuracy);
-  const bonus = metrics.boardsCompleted * 3;
-  const penalty = metrics.errors * 1;
-  return Math.max(1, Math.round(base + bonus - penalty));
-}
-/* -------------------------------------------------------------------------------------- */
+/* ----------------------------------------------------------------------------------------- */
 
 export default function SchulteGame({
   onComplete,
@@ -257,25 +212,14 @@ export default function SchulteGame({
       durationMs: SESSION_MS,
     });
 
-    await recordRun(user?.id, "schulte", {
+    onComplete?.(score, accuracy, SESSION_MS / 1000, {
       level,
-      boardsCompleted,
-      found: foundCount,
-      errors,
-      accuracy,
-      duration_ms: SESSION_MS,
-      ended_at: new Date().toISOString(),
+      metrics: {
+        boardsCompleted,
+        found: foundCount,
+        errors
+      }
     });
-
-    const xp = computeXpSimple({
-      boardsCompleted,
-      found: foundCount,
-      errors,
-      accuracy,
-    });
-    await grantXp(user?.id, xp, { reason: "schulte_session" });
-
-  onComplete?.(score, accuracy, SESSION_MS / 1000);
   }, [boardsCompleted, errors, foundCount, level, onComplete, user?.id]);
 
   // Mantengo tu efecto original

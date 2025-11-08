@@ -11,7 +11,12 @@ export function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const { signIn, signUp, loading } = useAuth();
+  const [tab, setTab] = useState<'signin' | 'signup'>('signin');
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const { signIn, signUp, loading, sendPasswordReset } = useAuth();
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,6 +26,17 @@ export function AuthPage() {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     await signUp(email, password, displayName);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) return;
+    setResetSubmitting(true);
+    const { error } = await sendPasswordReset(resetEmail);
+    if (!error) {
+      setResetSent(true);
+    }
+    setResetSubmitting(false);
   };
 
   return (
@@ -64,91 +80,152 @@ export function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="signin" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Iniciar Sesión</TabsTrigger>
-                <TabsTrigger value="signup">Registrarse</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="signin">
-                <form onSubmit={handleSignIn} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-email">Email</Label>
-                    <Input
-                      id="signin-email"
-                      type="email"
-                      placeholder="tu@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-password">Contraseña</Label>
-                    <Input
-                      id="signin-password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-primary hover:shadow-glow-primary transition-all duration-300" 
-                    disabled={loading}
+            {showReset ? (
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reset-email">Email</Label>
+                  <Input
+                    id="reset-email"
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                    disabled={resetSubmitting || resetSent}
+                  />
+                </div>
+                {resetSent ? (
+                  <p className="text-sm text-success">
+                    ¡Listo! Revisa tu bandeja de entrada y sigue el enlace para crear una nueva contraseña.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Te enviaremos un enlace para restablecer tu contraseña. Vigila la carpeta de spam si no lo ves.
+                  </p>
+                )}
+                <div className="flex flex-col gap-2">
+                  {!resetSent && (
+                    <Button
+                      type="submit"
+                      className="w-full bg-gradient-primary"
+                      disabled={resetSubmitting}
+                    >
+                      {resetSubmitting ? 'Enviando…' : 'Enviar enlace'}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowReset(false);
+                      setResetSubmitting(false);
+                      setResetSent(false);
+                    }}
                   >
-                    {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+                    Volver a iniciar sesión
                   </Button>
-                </form>
-              </TabsContent>
-              
-              <TabsContent value="signup">
-                <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-name">Nombre</Label>
-                    <Input
-                      id="signup-name"
-                      type="text"
-                      placeholder="Tu nombre"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="tu@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Contraseña</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-gradient-success hover:shadow-glow-xp transition-all duration-300" 
-                    disabled={loading}
-                  >
-                    {loading ? 'Registrando...' : 'Crear Cuenta'}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
+                </div>
+              </form>
+            ) : (
+              <Tabs value={tab} onValueChange={(value) => setTab(value as 'signin' | 'signup')} className="space-y-4">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="signin">Iniciar Sesión</TabsTrigger>
+                  <TabsTrigger value="signup">Registrarse</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="signin">
+                  <form onSubmit={handleSignIn} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signin-email">Email</Label>
+                      <Input
+                        id="signin-email"
+                        type="email"
+                        placeholder="tu@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signin-password">Contraseña</Label>
+                      <Input
+                        id="signin-password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Button
+                        type="submit"
+                        className="w-full bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
+                        disabled={loading}
+                      >
+                        {loading ? 'Iniciando...' : 'Iniciar Sesión'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="link"
+                        className="text-sm"
+                        onClick={() => {
+                          setShowReset(true);
+                          setResetEmail(email);
+                        }}
+                      >
+                        ¿Olvidaste tu contraseña?
+                      </Button>
+                    </div>
+                  </form>
+                </TabsContent>
+
+                <TabsContent value="signup">
+                  <form onSubmit={handleSignUp} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-name">Nombre</Label>
+                      <Input
+                        id="signup-name"
+                        type="text"
+                        placeholder="Tu nombre"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-email">Email</Label>
+                      <Input
+                        id="signup-email"
+                        type="email"
+                        placeholder="tu@email.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-password">Contraseña</Label>
+                      <Input
+                        id="signup-password"
+                        type="password"
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full bg-gradient-success hover:shadow-glow-xp transition-all duration-300"
+                      disabled={loading}
+                    >
+                      {loading ? 'Registrando...' : 'Crear Cuenta'}
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
+            )}
           </CardContent>
         </Card>
       </div>

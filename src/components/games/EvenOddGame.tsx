@@ -6,12 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { recordGameRun } from '@/services/gameRuns';
-import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface EvenOddGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty?: number;
   onBack?: () => void;
 }
@@ -141,8 +140,6 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
         saveLevelProgress(newLevel);
         setShowLevelUp(true);
         trackEvent(user?.id, 'level_up', { game: 'even_odd', newLevel });
-  const levelXp = computeGameXp('even_odd', { score, level: newLevel });
-  awardXp(user?.id, levelXp, 'game', { game: 'even_odd', event: 'level_complete' });
         if (level > 1 && level % 3 === 0) {
           setCurrentRule(prev => prev === 'even' ? 'odd' : 'even');
         }
@@ -160,25 +157,20 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
     }
   };
 
-  const handleGameEnd = async () => {
+  const handleGameEnd = () => {
     setGameCompleted(true);
-  const duration = 45 - timeLeft;
-  const accuracyPct = score > 0 ? (score / (score + errors * 5)) * 100 : 0;
-    if (user) {
-      await recordGameRun({
-        userId: user.id,
-        gameCode: 'even_odd',
-        level,
-        score,
-    accuracy: accuracyPct,
-        durationSec: duration,
-        params: { errors }
-      });
-    }
-  const xp = computeGameXp('even_odd', { score, accuracy: accuracyPct, level });
-  awardXp(user?.id, xp, 'game', { game: 'even_odd' });
-  trackEvent(user?.id, 'game_end', { game: 'even_odd', level, score, accuracy: accuracyPct });
-  onComplete(score, accuracyPct, duration);
+    const duration = 45 - timeLeft;
+    const accuracy = score > 0 ? score / (score + errors * 5) : 0;
+    trackEvent(user?.id, 'game_end', { game: 'even_odd', level, score, accuracy: accuracy * 100 });
+    const extras: GameCompleteExtras = {
+      level,
+      metrics: {
+        errors,
+        targets: targetCount,
+        found: foundNumbers.size
+      }
+    };
+    onComplete(score, accuracy, duration, extras);
   };
 
   const startGame = () => {

@@ -139,12 +139,44 @@ export function useAuth() {
     }
   };
 
+  const sendPasswordReset = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${SITE_URL}/auth/reset`
+      });
+
+      if (error) {
+        toast({
+          title: "No se pudo enviar el correo",
+          description: error.message,
+          variant: "destructive"
+        });
+        return { error };
+      }
+
+      toast({
+        title: "Revisa tu correo",
+        description: "Te enviamos un enlace para restablecer tu contraseña."
+      });
+
+      return { error: null };
+    } catch (error: any) {
+      toast({
+        title: "Error inesperado",
+        description: error.message,
+        variant: "destructive"
+      });
+      return { error };
+    }
+  };
+
   return {
     user,
     session,
     loading,
     signUp,
     signIn,
-    signOut
+    signOut,
+    sendPasswordReset
   };
 }

@@ -6,9 +6,10 @@ import { Progress } from '@/components/ui/progress';
 import { Search, Clock, Target, Zap, ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePersistentGameLevel } from '@/hooks/usePersistentGameLevel';
+import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
 
 interface LetterSearchGameProps {
-  onComplete: (score: number, accuracy: number, durationSec: number) => void;
+  onComplete: GameCompleteHandler;
   difficulty: number;
   onBack?: () => void;
 }
@@ -131,11 +132,19 @@ export function LetterSearchGame({ onComplete, difficulty, onBack }: LetterSearc
     const duration = Math.floor((Date.now() - startTime!.getTime()) / 1000);
     const totalTargetsInGrid = grid.filter(cell => targetLetters.includes(cell)).length;
     const accuracy = totalTargetsInGrid > 0 ? foundTargets.size / totalTargetsInGrid : 0;
-  // Final score builds on incremental base plus time bonus minus penalties
-  const finalScore = Math.max(0, Math.round(score + (timeLeft * 5) - (wrongClicks * 10)));
+    // Final score builds on incremental base plus time bonus minus penalties
+    const finalScore = Math.max(0, Math.round(score + (timeLeft * 5) - (wrongClicks * 10)));
     
     setGameEnded(true);
-  onComplete(finalScore, accuracy, duration);
+    const extras: GameCompleteExtras = {
+      level,
+      metrics: {
+        rounds: rounds - 1,
+        wrongClicks,
+        remainingTime: timeLeft
+      }
+    };
+    onComplete(finalScore, accuracy, duration, extras);
   };
 
   const progress = grid.length > 0 ? (foundTargets.size / grid.filter(cell => targetLetters.includes(cell)).length) * 100 : 0;

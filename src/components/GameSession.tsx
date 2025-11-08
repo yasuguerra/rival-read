@@ -7,6 +7,9 @@ import { ArrowLeft, Clock, Trophy, Target } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { filterImplementedGames } from '@/lib/game-registry';
+import { processGameResult } from '@/services/gameResults';
+import type { GameCompleteExtras } from '@/types/games';
 import SchulteGame from './games/SchulteGame';
 import { LetterSearchGame } from './games/LetterSearchGame';
 import { WordRaceGame } from './games/WordRaceGame';
@@ -113,24 +116,19 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
       console.log('All games loaded:', games);
 
       // Only use implemented games
-      const implementedGameCodes = [
-        'schulte', 'letter_search', 'word_race', 'number_memory', 'word_race_rsvp', 'word_chain',
-        'twin_words', 'even_odd', 'anagrams', 'find_number', 'visual_field', 'find_words',
-        'text_scanning', 'reading_accelerator', 'neuron_accelerator'
-      ];
-      let availableGames = games.filter(game => implementedGameCodes.includes(game.code));
+      let availableGames = filterImplementedGames(games);
 
       // Filter games based on training mode
       let filteredGames = availableGames;
       if (mode === 'speed') {
         filteredGames = availableGames.filter(game => {
-          const skills = game.skills_json as any;
-          return skills.speed && skills.speed > 0.5;
+          const skills = game.skills_json as Record<string, number> | null;
+          return skills?.speed && skills.speed > 0.5;
         });
       } else if (mode === 'comp') {
         filteredGames = availableGames.filter(game => {
-          const skills = game.skills_json as any;
-          return skills.comp && skills.comp > 0.5;
+          const skills = game.skills_json as Record<string, number> | null;
+          return skills?.comp && skills.comp > 0.5;
         });
       }
 
@@ -184,10 +182,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
       // Rebuild games list fresh (cannot restore exact order without persisted list)
       const { data: games } = await supabase.from('games').select('*');
-      const implementedGameCodes = [
-        'schulte','letter_search','word_race','number_memory','word_race_rsvp','word_chain','twin_words','even_odd','anagrams','find_number','visual_field','find_words','text_scanning','reading_accelerator','neuron_accelerator'
-      ];
-      const availableGames = (games||[]).filter(g=>implementedGameCodes.includes(g.code));
+      const availableGames = filterImplementedGames(games || []);
       const shuffledGames = availableGames.sort(() => Math.random() - 0.5);
 
       const startTime = new Date(session.started_at);
@@ -213,49 +208,34 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
     }
   };
 
-  const handleGameComplete = async (score: number, accuracy: number, durationSec: number) => {
+  const handleGameComplete = async (
+    score: number,
+    accuracy: number,
+    durationSec: number,
+    extras?: GameCompleteExtras
+  ) => {
     if (!sessionState || !currentGame) return;
 
     try {
-      // Save game run
-      await supabase
-        .from('game_runs')
-        .insert({
-          session_id: sessionState.sessionId,
-          user_id: user!.id,
-          game_id: currentGame.id,
-          level: 1, // TODO: implement adaptive difficulty
-          score,
-          accuracy,
-          duration_sec: durationSec
-        });
+      const { xpAwarded, normalizedAccuracy } = await processGameResult({
+        userId: user?.id,
+        gameCode: currentGame.code,
+        sessionId: sessionState.sessionId,
+        level: extras?.level,
+        score,
+        accuracy,
+        durationSec,
+        extras
+      });
 
-      // Calculate XP based on performance
-      const baseXP = 10;
-      const accuracyBonus = accuracy * 5;
-      const speedBonus = Math.max(0, (60 - durationSec) / 10);
-      const totalGameXP = Math.round(baseXP + accuracyBonus + speedBonus);
+      const elapsedMinutes = (Date.now() - sessionState.startTime.getTime()) / 60000;
 
-      // Add XP to ledger
-      await supabase
-        .from('xp_ledger')
-        .insert({
-          user_id: user!.id,
-          source: 'game',
-          delta: totalGameXP,
-          meta: {
-            game_code: currentGame.code,
-            score,
-            accuracy,
-            duration: durationSec
-          }
-        });
-
-  const updatedState = {
+      const updatedState = {
         ...sessionState,
         currentGameIndex: sessionState.currentGameIndex + 1,
-        totalXP: sessionState.totalXP + totalGameXP,
-        gamesCompleted: sessionState.gamesCompleted + 1
+        totalXP: sessionState.totalXP + xpAwarded,
+        gamesCompleted: sessionState.gamesCompleted + 1,
+        elapsedMinutes
       };
 
       setSessionState(updatedState);
@@ -265,27 +245,33 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
       const shouldEnd = now >= sessionState.endTime || 
                        updatedState.currentGameIndex >= sessionState.games.length;
 
-  if (shouldEnd) {
+      if (shouldEnd) {
         endSession(updatedState);
       } else {
         // Move to next game
-        setCurrentGame(sessionState.games[updatedState.currentGameIndex]);
+  setCurrentGame(updatedState.games[updatedState.currentGameIndex]);
         setIsGameActive(false);
         
         toast({
           title: "¡Bien hecho!",
-          description: `+${totalGameXP} XP • ${Math.round(accuracy)}% precisión`,
+          description: `+${xpAwarded} XP • ${Math.round(normalizedAccuracy * 100)}% precisión`,
         });
       }
     } catch (error) {
       console.error('Error saving game result:', error);
+      toast({
+        title: 'Error registrando partida',
+        description: 'Inténtalo nuevamente, no se guardó el progreso.',
+        variant: 'destructive'
+      });
     }
   };
 
   const endSession = async (finalState: SessionState) => {
     try {
       // Update session end time and goal status
-      const goalMet = finalState.elapsedMinutes >= duration;
+      const elapsedMinutes = (Date.now() - finalState.startTime.getTime()) / 60000;
+      const goalMet = elapsedMinutes >= duration;
       
       await supabase
         .from('sessions')
