@@ -4,12 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Clock, Trophy, Target } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { filterImplementedGames } from '@/lib/game-registry';
 import { processGameResult } from '@/services/gameResults';
 import type { GameCompleteExtras } from '@/types/games';
+import { createSession, updateSession } from '@/services/firestore/sessions';
+import { updateStreak } from '@/services/firestore/streaks';
+import { GAMES_DATA } from '@/lib/game-data';
 import SchulteGame from './games/SchulteGame';
 import { LetterSearchGame } from './games/LetterSearchGame';
 import { WordRaceGame } from './games/WordRaceGame';
@@ -55,9 +57,9 @@ interface SessionState {
 export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSessionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  
+
   console.log('GameSession component rendered. User:', user);
-  
+
   const [sessionState, setSessionState] = useState<SessionState | null>(null);
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const [isGameActive, setIsGameActive] = useState(false);
@@ -76,7 +78,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
   const initializeSession = async () => {
     console.log('initializeSession called');
-    
+
     if (!user) {
       console.log('No user found, returning');
       return;
@@ -84,35 +86,13 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
     try {
       console.log('Initializing session with mode:', mode, 'duration:', duration);
-      
-      // Create new session in database
-      const { data: session, error: sessionError } = await supabase
-        .from('sessions')
-        .insert({
-          user_id: user.id,
-          mode,
-          duration_min: duration
-        })
-        .select()
-        .single();
 
-      if (sessionError) {
-        console.error('Session creation error:', sessionError);
-        throw sessionError;
-      }
+      // Create new session in Firestore
+      const sessionId = await createSession(user.uid);
+      console.log('Session created in Firestore:', sessionId);
 
-      console.log('Session created:', session);
-
-      // Load available games based on mode
-      const { data: games, error: gamesError } = await supabase
-        .from('games')
-        .select('*');
-
-      if (gamesError) {
-        console.error('Games loading error:', gamesError);
-        throw gamesError;
-      }
-
+      // Load available games from local data
+      const games = GAMES_DATA;
       console.log('All games loaded:', games);
 
       // Only use implemented games
@@ -141,7 +121,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
       const endTime = new Date(startTime.getTime() + duration * 60 * 1000);
 
       const newSessionState: SessionState = {
-        sessionId: session.id,
+        sessionId: sessionId,
         startTime,
         endTime,
         elapsedMinutes: 0,
@@ -153,12 +133,12 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
       setSessionState(newSessionState);
       setCurrentGame(shuffledGames[0] || null);
-      
+
       toast({
         title: "¡Sesión iniciada!",
         description: `Tienes ${duration} minutos para entrenar.`,
       });
-      
+
     } catch (error) {
       console.error('Error initializing session:', error);
       toast({
@@ -172,40 +152,9 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
   };
 
   const resumeExistingSession = async (sessionId: string) => {
-    try {
-      const { data: session } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('id', sessionId)
-        .single();
-      if (!session) return initializeSession();
-
-      // Rebuild games list fresh (cannot restore exact order without persisted list)
-      const { data: games } = await supabase.from('games').select('*');
-      const availableGames = filterImplementedGames(games || []);
-      const shuffledGames = availableGames.sort(() => Math.random() - 0.5);
-
-      const startTime = new Date(session.started_at);
-      const endTime = new Date(startTime.getTime() + session.duration_min * 60 * 1000);
-
-      const existingState: SessionState = {
-        sessionId: session.id,
-        startTime,
-        endTime,
-        elapsedMinutes: (Date.now() - startTime.getTime()) / 60000,
-        currentGameIndex: 0,
-        games: shuffledGames,
-        totalXP: 0,
-        gamesCompleted: 0
-      };
-      setSessionState(existingState);
-      setCurrentGame(shuffledGames[0] || null);
-      setLoading(false);
-      toast({ title: 'Reanudando sesión', description: 'Continuando tu entrenamiento de hoy.' });
-    } catch (e) {
-      console.error('Error resuming session', e);
-      initializeSession();
-    }
+    // For now, just start a new session since we migrated to Firestore
+    // and don't have resume logic wired up yet
+    initializeSession();
   };
 
   const handleGameComplete = async (
@@ -218,7 +167,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
     try {
       const { xpAwarded, normalizedAccuracy } = await processGameResult({
-        userId: user?.id,
+        userId: user?.uid,
         gameCode: currentGame.code,
         sessionId: sessionState.sessionId,
         level: extras?.level,
@@ -242,16 +191,16 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
 
       // Check if session should end
       const now = new Date();
-      const shouldEnd = now >= sessionState.endTime || 
-                       updatedState.currentGameIndex >= sessionState.games.length;
+      const shouldEnd = now >= sessionState.endTime ||
+        updatedState.currentGameIndex >= sessionState.games.length;
 
       if (shouldEnd) {
         endSession(updatedState);
       } else {
         // Move to next game
-  setCurrentGame(updatedState.games[updatedState.currentGameIndex]);
+        setCurrentGame(updatedState.games[updatedState.currentGameIndex]);
         setIsGameActive(false);
-        
+
         toast({
           title: "¡Bien hecho!",
           description: `+${xpAwarded} XP • ${Math.round(normalizedAccuracy * 100)}% precisión`,
@@ -272,14 +221,19 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
       // Update session end time and goal status
       const elapsedMinutes = (Date.now() - finalState.startTime.getTime()) / 60000;
       const goalMet = elapsedMinutes >= duration;
-      
-      await supabase
-        .from('sessions')
-        .update({
-          ended_at: new Date().toISOString(),
-          goal_met: goalMet
-        })
-        .eq('id', finalState.sessionId);
+
+      // Update session in Firestore
+      await updateSession(finalState.sessionId, {
+        durationMin: Math.round(elapsedMinutes),
+        xpEarned: finalState.totalXP,
+        goalMet: goalMet,
+        gamesPlayed: finalState.games.slice(0, finalState.gamesCompleted).map(g => g.code)
+      });
+
+      // Update streak if goal was met
+      if (goalMet && user) {
+        await updateStreak(user.uid, true);
+      }
 
       toast({
         title: goalMet ? "¡Meta cumplida!" : "Sesión completada",
@@ -290,7 +244,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
       setTimeout(() => {
         onBack();
       }, 2000);
-      
+
     } catch (error) {
       console.error('Error ending session:', error);
     }
@@ -461,7 +415,7 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
               </p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-4">
             <Badge variant="outline" className="text-lg px-3 py-1">
               <Clock className="w-4 h-4 mr-1" />
@@ -502,9 +456,9 @@ export function GameSession({ mode, duration, onBack, resumeSessionId }: GameSes
               <p className="text-muted-foreground">
                 {currentGame?.description || 'Descripción del juego'}
               </p>
-              
+
               <div className="flex justify-center">
-                <Button 
+                <Button
                   onClick={() => setIsGameActive(true)}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                   size="lg"
