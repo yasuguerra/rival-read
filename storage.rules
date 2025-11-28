@@ -1,0 +1,45 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ========================================
+    // Helper Functions
+    // ========================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // ========================================
+    // User-Uploaded Texts
+    // ========================================
+    
+    match /texts/{userId}/{textId} {
+      allow read, write: if isOwner(userId);
+      allow delete: if isOwner(userId);
+    }
+    
+    // ========================================
+    // User Avatars (Public Read)
+    // ========================================
+    
+    match /avatars/{userId}/{fileName} {
+      allow read: if true; // Public read for all users
+      allow write, delete: if isOwner(userId);
+    }
+    
+    // ========================================
+    // Rival Assets (Optional - for custom rival skins)
+    // ========================================
+    
+    match /rivals/{userId}/{assetId} {
+      allow read: if true; // Public read
+      allow write, delete: if isOwner(userId);
+    }
+  }
+}

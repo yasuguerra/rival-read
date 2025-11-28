@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, Play, Zap, Brain, Target } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { GAMES_DATA, Game } from '@/lib/game-data';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { filterImplementedGames } from '@/lib/game-registry';
@@ -24,14 +24,6 @@ import { TextScanningGame } from './games/TextScanningGame';
 import { ReadingAcceleratorGame } from './games/ReadingAcceleratorGame';
 import { NeuronAcceleratorGame } from './games/NeuronAcceleratorGame';
 
-interface Game {
-  id: string;
-  name: string;
-  code: string;
-  description: string;
-  skills_json: any;
-}
-
 interface GamePracticeProps {
   onBack: () => void;
 }
@@ -50,11 +42,9 @@ export function GamePractice({ onBack }: GamePracticeProps) {
 
   const loadGames = async () => {
     try {
-      const { data: gamesData, error } = await supabase
-        .from('games')
-        .select('*');
-
-      if (error) throw error;
+      // TODO: Migrate to Firestore
+      // Mock load games
+      const gamesData = GAMES_DATA;
 
       // Solo mostrar juegos implementados
       const availableGames = gamesData ? filterImplementedGames(gamesData) : [];
@@ -96,7 +86,7 @@ export function GamePractice({ onBack }: GamePracticeProps) {
 
     try {
       const { xpAwarded, normalizedAccuracy } = await processGameResult({
-        userId: user?.id,
+        userId: user?.uid,
         gameCode: selectedGame.code,
         score,
         accuracy,
@@ -183,8 +173,8 @@ export function GamePractice({ onBack }: GamePracticeProps) {
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             size="icon"
             onClick={onBack}
             className="border-border/50"
@@ -207,9 +197,9 @@ export function GamePractice({ onBack }: GamePracticeProps) {
             {games.map((game) => {
               const IconComponent = getGameIcon(game.code);
               const skills = game.skills_json as any;
-              
+
               return (
-                <Card 
+                <Card
                   key={game.id}
                   className="border-border/50 bg-card/80 backdrop-blur-sm hover:shadow-glow-primary transition-all duration-300 cursor-pointer"
                   onClick={() => setSelectedGame(game)}
@@ -247,8 +237,8 @@ export function GamePractice({ onBack }: GamePracticeProps) {
                         </span>
                       )}
                     </div>
-                    
-                    <Button 
+
+                    <Button
                       className="w-full bg-gradient-primary hover:shadow-glow-primary"
                       onClick={(e) => {
                         e.stopPropagation();

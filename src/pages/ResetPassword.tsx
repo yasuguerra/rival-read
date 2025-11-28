@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
+import { confirmPasswordReset } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,50 +18,20 @@ export default function ResetPassword() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const recoveryToken = useMemo(() => searchParams.get('code') ?? searchParams.get('token_hash'), [searchParams]);
+  // Firebase uses 'oobCode' for password reset
+  const oobCode = useMemo(() => searchParams.get('oobCode'), [searchParams]);
 
   useEffect(() => {
-    const handleRecoverySession = async () => {
-      try {
-        // Handle hash fragment tokens (access_token & refresh_token) if present
-        if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          if (accessToken && refreshToken) {
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken
-            });
-            if (error) throw error;
-            // Remove hash from URL to avoid confusion
-            window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-          }
-        }
-
-        // Handle recovery code via query parameter (password recovery emails)
-        if (recoveryToken && searchParams.get('code')) {
-          const { error } = await supabase.auth.exchangeCodeForSession(recoveryToken);
-          if (error) throw error;
-        }
-
-        // Ensure there is an active session before allowing password change
-        const { data } = await supabase.auth.getSession();
-        if (!data.session) {
-          throw new Error('El enlace de recuperación no es válido o ya expiró. Solicita uno nuevo.');
-        }
-
-        setStatus('ready');
-        setStatusMessage('');
-      } catch (error: any) {
-        console.error('Password recovery validation failed', error);
-        setStatus('error');
-        setStatusMessage(error?.message ?? 'No se pudo validar el enlace de recuperación.');
-      }
-    };
-
-    handleRecoverySession();
-  }, [recoveryToken, searchParams]);
+    if (!oobCode) {
+      setStatus('error');
+      setStatusMessage('El enlace de recuperación no es válido.');
+      return;
+    }
+    // Firebase validates the code when we try to confirm, or we can verify it before.
+    // For simplicity, we assume it's ready if present.
+    setStatus('ready');
+    setStatusMessage('');
+  }, [oobCode]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -81,26 +52,26 @@ export default function ResetPassword() {
       return;
     }
 
-    setSubmitting(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setSubmitting(false);
+    if (!oobCode) return;
 
-    if (error) {
+    setSubmitting(true);
+    try {
+      await confirmPasswordReset(auth, oobCode, password);
+      setStatus('success');
       toast({
-        title: 'No se pudo actualizar la contraseña',
+        title: '¡Contraseña actualizada!',
+        description: 'Ahora puedes iniciar sesión con tu nueva contraseña.'
+      });
+      setTimeout(() => navigate('/'), 1500);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
         description: error.message,
         variant: 'destructive'
       });
-      return;
+    } finally {
+      setSubmitting(false);
     }
-
-    setStatus('success');
-    toast({
-      title: '¡Contraseña actualizada!',
-      description: 'Ahora puedes iniciar sesión con tu nueva contraseña.'
-    });
-
-    setTimeout(() => navigate('/'), 1500);
   };
 
   const renderContent = () => {

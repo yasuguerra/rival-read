@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+
 import { useAuth } from '@/hooks/useAuth';
 
 interface TwinWordsGameProps {
@@ -39,22 +39,22 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
   ];
 
   // Pares de confusión (near twins) -> cada subarray: [correcta, variante similar distinta]
-  const confusingPairs: [string,string][] = [
-    ['salsa','selso'],
-    ['canon','cañon'],
-    ['canon','canón'],
-    ['esta','está'],
-    ['accion','acción'],
-    ['nino','niño'],
-    ['anio','año'],
-    ['senor','señor'],
-    ['vision','visión'],
-    ['lapiz','lápiz'],
-    ['papel','papél'],
-    ['casa','caza'],
-    ['río','rio'],
-    ['sol','sól'],
-    ['salud','salúd']
+  const confusingPairs: [string, string][] = [
+    ['salsa', 'selso'],
+    ['canon', 'cañon'],
+    ['canon', 'canón'],
+    ['esta', 'está'],
+    ['accion', 'acción'],
+    ['nino', 'niño'],
+    ['anio', 'año'],
+    ['senor', 'señor'],
+    ['vision', 'visión'],
+    ['lapiz', 'lápiz'],
+    ['papel', 'papél'],
+    ['casa', 'caza'],
+    ['río', 'rio'],
+    ['sol', 'sól'],
+    ['salud', 'salúd']
   ];
 
   // Normalize Spanish accents and ñ for comparison
@@ -86,7 +86,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -94,7 +94,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
         .eq('user_id', user.id)
         .eq('game_code', 'twin_words')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         setLevel(data.last_level);
       }
@@ -105,7 +105,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -121,8 +121,8 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
   };
 
   const generateWordPairs = () => {
-  const gridSize = Math.min(4 + Math.floor(level / 2), 10); // crecer hasta 10
-  const totalPairs = Math.min(gridSize * 2, 100); // limite duro de 100 pares visibles
+    const gridSize = Math.min(4 + Math.floor(level / 2), 10); // crecer hasta 10
+    const totalPairs = Math.min(gridSize * 2, 100); // limite duro de 100 pares visibles
     const targetPairs = Math.ceil(totalPairs * 0.4); // 40% objetivos
 
     const words = shuffle([...wordsList]);
@@ -132,7 +132,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     const shuffledConfusing = shuffle([...confusingPairs]);
     for (let i = 0; i < targetPairs; i++) {
       if (i < shuffledConfusing.length) {
-        const [a,b] = shuffledConfusing[i];
+        const [a, b] = shuffledConfusing[i];
         pairs.push({ word1: a, word2: b, isTarget: true, found: false });
       } else {
         let w1 = words[i % words.length];
@@ -148,7 +148,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
     for (let i = targetPairs; i < totalPairs; i++) {
       // Para hacerlo menos trivial, a veces misma palabra vs variante acentuada (pero usuario NO debe pulsar)
       const base = words[i % words.length];
-      const variant = base.normalize('NFD').includes('\u0301') ? base.replace(/\u0301/g,'') : base; // simple fallback
+      const variant = base.normalize('NFD').includes('\u0301') ? base.replace(/\u0301/g, '') : base; // simple fallback
       pairs.push({ word1: base, word2: variant, isTarget: variant !== base ? false : false, found: false });
     }
 
@@ -159,12 +159,12 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
 
   const handlePairClick = (pairIndex: number) => {
     if (!gameStarted || wordPairs[pairIndex].found) return;
-    
+
     const pair = wordPairs[pairIndex];
-    
-  if (pair.isTarget) {
+
+    if (pair.isTarget) {
       // Correct - this is a different pair
-      setWordPairs(prev => prev.map((p, i) => 
+      setWordPairs(prev => prev.map((p, i) =>
         i === pairIndex ? { ...p, found: true } : p
       ));
       setScore(prev => prev + 20);
@@ -182,7 +182,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
         }
         return newRemaining;
       });
-  } else {
+    } else {
       // Wrong - par idéntico pulsado
       setErrors(prev => prev + 1);
       setScore(prev => Math.max(0, prev - 5));
@@ -233,7 +233,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
               <p className="text-sm text-muted-foreground">Nivel {level} • Encuentra los pares NO idénticos</p>
             </div>
           </div>
-          
+
           {gameStarted && (
             <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
               {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
@@ -250,7 +250,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
               <div className="text-center space-y-4">
                 <div>
                   <p className="text-muted-foreground mb-4">
-                    Busca los pares de palabras que son DIFERENTES entre sí. 
+                    Busca los pares de palabras que son DIFERENTES entre sí.
                     Evita los pares idénticos. Mantén la mirada en el centro y percibe en bloques.
                   </p>
                   <div className="text-sm text-muted-foreground space-y-2 bg-muted/20 p-4 rounded-lg">
@@ -258,7 +258,7 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
                     <p><strong>Evita:</strong> Pares como "casa ↔ casa" (idénticos)</p>
                   </div>
                 </div>
-                <Button 
+                <Button
                   onClick={startGame}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                 >
@@ -273,9 +273,9 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
                   <span>Pares restantes: {pairsRemaining}</span>
                   <span>Errores: {errors}</span>
                 </div>
-                
+
                 <Progress value={pairsRemaining === 0 ? 100 : ((Math.ceil(Math.min(4 + Math.floor(level / 2), 7) * 2 * 0.4) - pairsRemaining) / Math.ceil(Math.min(4 + Math.floor(level / 2), 7) * 2 * 0.4)) * 100} />
-                
+
                 <div className="grid gap-3">
                   {wordPairs.map((pair, index) => (
                     <button
@@ -303,10 +303,10 @@ export function TwinWordsGame({ onComplete, difficulty = 1, onBack }: TwinWordsG
                     </button>
                   ))}
                 </div>
-                
+
                 <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={resetGame}
                     className="border-border/50"
                   >

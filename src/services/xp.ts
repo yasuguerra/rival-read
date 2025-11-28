@@ -1,14 +1,10 @@
-import { supabase } from '@/integrations/supabase/client';
+import { addXpTransaction } from '@/services/firestore/xpLedger';
 import { trackEvent } from './analytics';
 
 export async function awardXp(userId: string | undefined, delta: number, source: 'game' | 'streak' | 'rival' | 'bonus' = 'game', meta: Record<string, any> = {}) {
   if (!userId || delta <= 0) return;
-  await supabase.from('xp_ledger').insert({
-    user_id: userId,
-    source,
-    delta,
-    meta
-  });
+
+  await addXpTransaction(userId, delta, source, meta);
   trackEvent(userId, 'xp_gain', { delta, source, ...meta });
 }
 

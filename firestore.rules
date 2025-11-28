@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidUserId() {
+      return isAuthenticated() && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Users collection - users can only read/write their own profile
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+    
+    // Goals collection - users can only access their own goals
+    match /goals/{goalId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // XP Ledger - users can read their own transactions, only server can write
+    match /xp_ledger/{transactionId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      // Only allow updates/deletes via Cloud Functions in production
+      allow update, delete: if false;
+    }
+    
+    // Game Runs - users can read/write their own game results
+    match /game_runs/{runId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Sessions - users can read/write their own sessions
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Streaks - users can read/write their own streak data
+    match /streaks/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+    
+    // Rival States - users can read their own rival state
+    match /rival_states/{stateId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      // Only Cloud Functions should update rival states in production
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Reading Tests - users can read/write their own reading test results
+    match /reading_tests/{testId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Uploaded Texts - users can read/write their own uploaded texts
+    match /uploaded_texts/{textId} {
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow create: if isValidUserId();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Analytics Events - write-only for authenticated users, read via Cloud Functions
+    match /analytics_events/{eventId} {
+      allow read: if false; // Only accessible via Cloud Functions
+      allow create: if isValidUserId();
+      allow update, delete: if false;
+    }
+  }
+}

@@ -1,15 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/useAuth';
-import { 
-  Brain, 
-  Zap, 
-  Target, 
-  Clock, 
-  Trophy, 
+import {
+  Brain,
+  Zap,
+  Target,
+  Trophy,
   Flame,
   Play,
   BookOpen,
@@ -17,22 +16,35 @@ import {
   LogOut
 } from 'lucide-react';
 import { RivalAvatar } from './RivalAvatar';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchDashboardStats, DashboardStats } from '@/services/stats';
-import { Suspense, lazy } from 'react';
-const SessionSetup = lazy(() => import('./SessionSetup').then(m => ({ default: m.SessionSetup })));
-const GamePractice = lazy(() => import('./GamePractice').then(m => ({ default: m.GamePractice })));
+import { updateRivalState } from '@/services/rival';
 import { TextUploadModal } from './TextUploadModal';
 import { SettingsModal } from './SettingsModal.tsx';
 import { useNavigate } from 'react-router-dom';
 
+const SessionSetup = lazy(() => import('./SessionSetup').then(m => ({ default: m.SessionSetup })));
+const GamePractice = lazy(() => import('./GamePractice').then(m => ({ default: m.GamePractice })));
+
 export function Dashboard() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [showSessionSetup, setShowSessionSetup] = useState(false);
   const [showGamePractice, setShowGamePractice] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Update Rival State on mount
+  useEffect(() => {
+    if (user?.id) {
+      updateRivalState(user.id).then(() => {
+        // Invalidate stats query to reflect new rival XP if it changed
+        queryClient.invalidateQueries({ queryKey: ['dashboardStats', user.id] });
+      });
+    }
+  }, [user?.id, queryClient]);
+
   const { data: stats, isLoading, isError, refetch } = useQuery<DashboardStats | undefined>({
     queryKey: ['dashboardStats', user?.id],
     queryFn: async () => {
@@ -199,24 +211,24 @@ export function Dashboard() {
 
         {/* Action Buttons */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Button 
+          <Button
             onClick={() => setShowSessionSetup(true)}
             className="h-16 bg-gradient-primary hover:shadow-glow-primary transition-all duration-300 text-lg"
           >
             <Play className="w-6 h-6 mr-2" />
             Entrenar Ahora
           </Button>
-          
-          <Button 
+
+          <Button
             onClick={() => setShowGamePractice(true)}
-            variant="outline" 
+            variant="outline"
             className="h-16 border-border/50 hover:bg-secondary/50 text-lg"
           >
             <Target className="w-6 h-6 mr-2" />
             Práctica Libre
           </Button>
-          
-          <Button 
+
+          <Button
             variant="outline"
             onClick={() => setShowUpload(true)}
             className="h-16 border-border/50 hover:bg-secondary/50 text-lg"
@@ -225,19 +237,19 @@ export function Dashboard() {
             Subir Texto
           </Button>
         </div>
-  <TextUploadModal
+        <TextUploadModal
           open={showUpload}
           onOpenChange={setShowUpload}
           onProcess={async (content) => {
-      // Navega a modo lectura con state (texto cargado)
-      navigate('/lectura-subida', { state: { text: content } });
+            // Navega a modo lectura con state (texto cargado)
+            navigate('/lectura-subida', { state: { text: content } });
           }}
         />
         <SettingsModal
           open={showSettings}
           onOpenChange={setShowSettings}
           userId={user?.id || ''}
-      onUpdated={() => { refetch(); }}
+          onUpdated={() => { refetch(); }}
         />
       </div>
     </div>

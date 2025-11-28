@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
 interface RivalAvatarProps {
@@ -22,28 +21,6 @@ export function RivalAvatar({ size = 'md', className = '' }: RivalAvatarProps) {
     skin: 'classic',
     color: '#E11D48'
   });
-
-  useEffect(() => {
-    loadRival();
-  }, [user]);
-
-  const loadRival = async () => {
-    if (!user) return;
-    
-    try {
-      const { data } = await supabase
-        .from('rivals')
-        .select('name, archetype, skin, color')
-        .eq('user_id', user.id)
-        .single();
-      
-      if (data) {
-        setRival(data);
-      }
-    } catch (error) {
-      console.error('Error loading rival:', error);
-    }
-  };
 
   const getSizeClasses = () => {
     switch (size) {
@@ -72,9 +49,9 @@ export function RivalAvatar({ size = 'md', className = '' }: RivalAvatarProps) {
 
   return (
     <div className={`${getSizeClasses()} ${className}`}>
-      <div 
+      <div
         className="w-full h-full rounded-full border-2 border-rival-primary/30 bg-gradient-rival flex items-center justify-center text-white font-bold shadow-gaming animate-rival-pulse"
-        style={{ 
+        style={{
           borderColor: `${rival.color}40`,
           background: `linear-gradient(135deg, ${rival.color}, ${rival.color}CC)`
         }}

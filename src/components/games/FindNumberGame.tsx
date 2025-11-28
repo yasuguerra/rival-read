@@ -1,18 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { trackEvent } from '@/services/analytics';
-import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
-
-interface FindNumberGameProps {
-  onComplete: GameCompleteHandler;
-  difficulty?: number;
-  onBack?: () => void;
+onComplete: GameCompleteHandler;
+difficulty ?: number;
+onBack ?: () => void;
 }
 
 export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumberGameProps) {
@@ -21,7 +9,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
   const [gameStarted, setGameStarted] = useState(false);
   const [numbersGrid, setNumbersGrid] = useState<number[][]>([]);
   const [targetSequence, setTargetSequence] = useState<number[]>([]);
-  const [selectedPath, setSelectedPath] = useState<Array<{row: number, col: number, number: number}>>([]);
+  const [selectedPath, setSelectedPath] = useState<Array<{ row: number, col: number, number: number }>>([]);
   const [score, setScore] = useState(0);
   const [errors, setErrors] = useState(0);
   const [timeLeft, setTimeLeft] = useState(60);
@@ -50,7 +38,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -58,7 +46,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
         .eq('user_id', user.id)
         .eq('game_code', 'find_number')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         setLevel(data.last_level);
       }
@@ -69,7 +57,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -86,11 +74,11 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
 
   const canPlaceSequence = (grid: number[][], sequence: number[], startRow: number, startCol: number, direction: number[]) => {
     const gridSize = grid.length;
-    
+
     for (let i = 0; i < sequence.length; i++) {
       const row = startRow + i * direction[0];
       const col = startCol + i * direction[1];
-      
+
       if (row < 0 || row >= gridSize || col < 0 || col >= gridSize) {
         return false;
       }
@@ -109,88 +97,88 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
   const generateGrid = () => {
     const gridSize = Math.min(6 + Math.floor(level / 2), 10); // 6x6 to 10x10
     const sequenceLength = Math.min(3 + Math.floor(level / 3), 6); // 3 to 6 digits
-    
+
     // Initialize grid with random numbers
-    const grid: number[][] = Array(gridSize).fill(null).map(() => 
+    const grid: number[][] = Array(gridSize).fill(null).map(() =>
       Array(gridSize).fill(null).map(() => Math.floor(Math.random() * 10))
     );
-    
+
     // Generate target sequence
-    const sequence: number[] = Array(sequenceLength).fill(null).map(() => 
+    const sequence: number[] = Array(sequenceLength).fill(null).map(() =>
       Math.floor(Math.random() * 10)
     );
-    
+
     // Define allowed directions based on level
     let directions = [
       [0, 1],   // horizontal right
       [1, 0],   // vertical down
     ];
-    
+
     if (level >= 3) {
       directions.push([1, 1]);   // diagonal down-right
       directions.push([-1, 1]);  // diagonal up-right
     }
-    
+
     if (level >= 5) {
       directions.push([0, -1]);   // horizontal left
       directions.push([-1, 0]);   // vertical up
       directions.push([-1, -1]);  // diagonal up-left
       directions.push([1, -1]);   // diagonal down-left
     }
-    
+
     // Place the sequence in the grid
-  let placed = false;
+    let placed = false;
     let attempts = 0;
-    
+
     while (!placed && attempts < 100) {
       const direction = directions[Math.floor(Math.random() * directions.length)];
       const startRow = Math.floor(Math.random() * gridSize);
       const startCol = Math.floor(Math.random() * gridSize);
-      
+
       if (canPlaceSequence(grid, sequence, startRow, startCol, direction)) {
         placeSequence(grid, sequence, startRow, startCol, direction);
         placed = true;
       }
       attempts++;
     }
-    
-  setNumbersGrid(grid);
-  setTargetSequence(sequence);
-  setSequenceGuaranteed(placed);
+
+    setNumbersGrid(grid);
+    setTargetSequence(sequence);
+    setSequenceGuaranteed(placed);
   };
 
   const handleCellClick = (rowIndex: number, colIndex: number) => {
     if (!gameStarted) return;
-    
+
     const number = numbersGrid[rowIndex][colIndex];
     const newPath = [...selectedPath, { row: rowIndex, col: colIndex, number }];
     setSelectedPath(newPath);
-    
+
     // Auto-check when sequence is complete
     if (newPath.length === targetSequence.length) {
       setTimeout(() => checkSequence(newPath), 500);
     }
   };
 
-  const checkSequence = (path: Array<{row: number, col: number, number: number}>) => {
+  const checkSequence = (path: Array<{ row: number, col: number, number: number }>) => {
     const selectedNumbers = path.map(cell => cell.number);
     const isCorrect = selectedNumbers.every((num, index) => num === targetSequence[index]);
-    
+
     if (isCorrect) {
       setScore(prev => prev + targetSequence.length * 10);
       setSequencesFound(prev => {
         const newFound = prev + 1;
         if (newFound >= totalSequences) {
           const newLevel = Math.min(level + 1, 10);
-            setLevel(newLevel);
-            saveLevelProgress(newLevel);
-            setShowLevelUp(true);
-            trackEvent(user?.id, 'level_up', { game: 'find_number', newLevel });
-            setTimeout(() => {
-              setShowLevelUp(false);
-              setSequencesFound(0);
-              generateGrid();
-            }, 1500);
+          setLevel(newLevel);
+          saveLevelProgress(newLevel);
+          setShowLevelUp(true);
+          trackEvent(user?.id, 'level_up', { game: 'find_number', newLevel });
+          setTimeout(() => {
+            setShowLevelUp(false);
+            setSequencesFound(0);
+            generateGrid();
+          }, 1500);
         } else {
           // Generate new sequence in same grid
           setTimeout(() => {
@@ -203,7 +191,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
       setErrors(prev => prev + 1);
       setScore(prev => Math.max(0, prev - 5));
     }
-    
+
     setSelectedPath([]);
   };
 
@@ -213,7 +201,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
 
   const handleGameEnd = () => {
     if (!startTime) return;
-  const duration = (Date.now() - startTime.getTime()) / 1000;
+    const duration = (Date.now() - startTime.getTime()) / 1000;
     const accuracy = score > 0 ? score / (score + errors * 5) : 0;
     trackEvent(user?.id, 'game_end', { game: 'find_number', level, score, accuracy: accuracy * 100 });
     const extras: GameCompleteExtras = {
@@ -277,7 +265,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
               <p className="text-sm text-muted-foreground">Nivel {level} • Matriz {Math.min(6 + Math.floor(level / 2), 10)}×{Math.min(6 + Math.floor(level / 2), 10)}</p>
             </div>
           </div>
-          
+
           {gameStarted && (
             <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
               {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
@@ -325,7 +313,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                     <p><strong>Direcciones:</strong> {level < 3 ? 'Horizontal y vertical' : level < 5 ? 'Incluye diagonales' : 'Todas las direcciones'}</p>
                   </div>
                 </div>
-                <Button 
+                <Button
                   onClick={startGame}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                 >
@@ -347,9 +335,9 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                 </div>
 
                 {/* Numbers Grid */}
-                <div 
+                <div
                   className="grid gap-1 mx-auto"
-                  style={{ 
+                  style={{
                     gridTemplateColumns: `repeat(${numbersGrid[0]?.length || 6}, minmax(0, 1fr))`,
                     maxWidth: '500px'
                   }}
@@ -358,7 +346,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                     row.map((number, colIndex) => {
                       const selected = isSelected(rowIndex, colIndex);
                       const selectionIndex = getSelectionIndex(rowIndex, colIndex);
-                      
+
                       return (
                         <Button
                           key={`${rowIndex}-${colIndex}`}
@@ -367,8 +355,8 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                             aspect-square font-mono transition-all duration-200 hover:scale-105
                             min-h-[40px] min-w-[40px] touch-manipulation relative
                             ${numbersGrid[0]?.length <= 6 ? 'text-lg' : numbersGrid[0]?.length <= 8 ? 'text-base' : 'text-sm'}
-                            ${selected 
-                              ? 'bg-primary/20 border-primary text-primary shadow-glow-primary' 
+                            ${selected
+                              ? 'bg-primary/20 border-primary text-primary shadow-glow-primary'
                               : 'bg-card border-border hover:border-primary/50'
                             }
                           `}
@@ -385,7 +373,7 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                     })
                   )}
                 </div>
-                
+
                 {/* Current Selection */}
                 {selectedPath.length > 0 && (
                   <div className="text-center">
@@ -398,20 +386,20 @@ export function FindNumberGame({ onComplete, difficulty = 1, onBack }: FindNumbe
                     </p>
                   </div>
                 )}
-                
+
                 {showLevelUp && (
                   <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
                 )}
                 <div className="flex justify-center gap-2">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={clearSelection}
                     disabled={selectedPath.length === 0}
                   >
                     Limpiar Selección
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={resetGame}
                     className="border-border/50"
                   >

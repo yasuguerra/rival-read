@@ -1,18 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { trackEvent } from '@/services/analytics';
-import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
-
-interface EvenOddGameProps {
-  onComplete: GameCompleteHandler;
-  difficulty?: number;
-  onBack?: () => void;
+onComplete: GameCompleteHandler;
+difficulty ?: number;
+onBack ?: () => void;
 }
 
 export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameProps) {
@@ -23,7 +11,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
   const [numbersGrid, setNumbersGrid] = useState<number[][]>([]);
   const computeGridSize = (lvl: number) => {
     // Start at 5x5 then grow: 5,5,6,6,7,7,8,8,9,9 for levels 1..10
-    const sequence = [5,5,6,6,7,7,8,8,9,9];
+    const sequence = [5, 5, 6, 6, 7, 7, 8, 8, 9, 9];
     return sequence[Math.min(lvl - 1, sequence.length - 1)];
   };
   const [currentRule, setCurrentRule] = useState<'even' | 'odd'>('even');
@@ -54,7 +42,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -62,7 +50,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
         .eq('user_id', user.id)
         .eq('game_code', 'even_odd')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         setLevel(data.last_level);
       }
@@ -73,7 +61,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -92,7 +80,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
     const gridSize = computeGridSize(level); // 5x5 upward progression
     const maxNumber = level < 3 ? 99 : level < 6 ? 999 : 9999;
     const grid: number[][] = [];
-    
+
     for (let i = 0; i < gridSize; i++) {
       const row: number[] = [];
       for (let j = 0; j < gridSize; j++) {
@@ -100,9 +88,9 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
       }
       grid.push(row);
     }
-    
+
     setNumbersGrid(grid);
-    
+
     // Count target numbers
     let count = 0;
     grid.forEach(row => {
@@ -122,17 +110,17 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
 
   const handleNumberClick = (number: number, rowIndex: number, colIndex: number) => {
     if (!gameStarted || gameCompleted) return;
-    
+
     const positionKey = `${rowIndex}-${colIndex}`;
-    
+
     if (foundNumbers.has(positionKey)) return;
-    
+
     const isCorrect = isNumberMatchingRule(number);
-    
+
     if (isCorrect) {
       setFoundNumbers(prev => new Set([...prev, positionKey]));
       setScore(prev => prev + 10);
-      
+
       // Check if all targets found
       if (foundNumbers.size + 1 >= targetCount) {
         const newLevel = Math.min(level + 1, 10);
@@ -216,7 +204,7 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
               <p className="text-sm text-muted-foreground">Nivel {level} • Matriz {computeGridSize(level)}×{computeGridSize(level)}</p>
             </div>
           </div>
-          
+
           {gameStarted && !gameCompleted && (
             <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
               {timeLeft}s
@@ -258,58 +246,58 @@ export function EvenOddGame({ onComplete, difficulty = 1, onBack }: EvenOddGameP
               </div>
               <Progress value={(foundNumbers.size / targetCount) * 100} className="h-2" />
               <div className="relative mt-4">
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="w-3 h-3 rounded-full bg-primary/70 animate-pulse shadow-glow-primary" />
-                  </div>
-                  <div 
-                    className="grid gap-1"
-                    style={{ 
-                      gridTemplateColumns: `repeat(${numbersGrid[0]?.length || 5}, minmax(0, 1fr))`,
-                      maxWidth: '600px',
-                      margin: '0 auto'
-                    }}
-                  >
-                    {numbersGrid.map((row, rowIndex) =>
-                      row.map((number, colIndex) => {
-                        const positionKey = `${rowIndex}-${colIndex}`;
-                        const isFound = foundNumbers.has(positionKey);
-                        return (
-                          <Button
-                            key={positionKey}
-                            variant={isFound ? "default" : "outline"}
-                            className={`
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="w-3 h-3 rounded-full bg-primary/70 animate-pulse shadow-glow-primary" />
+                </div>
+                <div
+                  className="grid gap-1"
+                  style={{
+                    gridTemplateColumns: `repeat(${numbersGrid[0]?.length || 5}, minmax(0, 1fr))`,
+                    maxWidth: '600px',
+                    margin: '0 auto'
+                  }}
+                >
+                  {numbersGrid.map((row, rowIndex) =>
+                    row.map((number, colIndex) => {
+                      const positionKey = `${rowIndex}-${colIndex}`;
+                      const isFound = foundNumbers.has(positionKey);
+                      return (
+                        <Button
+                          key={positionKey}
+                          variant={isFound ? "default" : "outline"}
+                          className={`
                               aspect-square font-mono transition-all duration-200 hover:scale-105
                               min-h-[48px] min-w-[48px] touch-manipulation
                               ${numbersGrid[0]?.length <= 6 ? 'text-base' : 'text-sm'}
-                              ${isFound 
-                                ? 'bg-success/20 border-success text-success' 
-                                : 'bg-card border-border hover:border-primary/50'
-                              }
+                              ${isFound
+                              ? 'bg-success/20 border-success text-success'
+                              : 'bg-card border-border hover:border-primary/50'
+                            }
                             `}
-                            onClick={() => handleNumberClick(number, rowIndex, colIndex)}
-                            disabled={isFound || gameCompleted}
-                          >
-                            {number}
-                          </Button>
-                        );
-                      })
-                    )}
-                  </div>
+                          onClick={() => handleNumberClick(number, rowIndex, colIndex)}
+                          disabled={isFound || gameCompleted}
+                        >
+                          {number}
+                        </Button>
+                      );
+                    })
+                  )}
                 </div>
-                {showLevelUp && (
-                  <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
-                )}
-                
-                <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
-                    onClick={resetGame}
-                    className="border-border/50"
-                  >
-                    <RotateCcw className="w-4 h-4 mr-2" />
-                    Reiniciar
-                  </Button>
-                </div>
+              </div>
+              {showLevelUp && (
+                <div className="text-center text-success font-semibold animate-pulse">¡Nivel superado! +XP</div>
+              )}
+
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={resetGame}
+                  className="border-border/50"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Reiniciar
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )}

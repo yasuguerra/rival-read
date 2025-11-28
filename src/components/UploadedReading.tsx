@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { recordGameRun } from '@/services/gameRuns';
 import { awardXp, computeGameXp } from '@/services/xp';
 import { trackEvent } from '@/services/analytics';
+import { saveReadingTest } from '@/services/firestore/readingTests';
 import { toast } from '@/components/ui/use-toast';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -62,8 +63,15 @@ Texto:\n"""${truncated}"""`;
     if (generating) return;
     setGenerating(true);
     try {
-      const key = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
-      if (!key) throw new Error('Sin API key de OpenAI.');
+      const key = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!key || key === 'your_gemini_api_key_here') {
+        toast({ title: 'API key no configurada', description: 'Configura VITE_GEMINI_API_KEY en .env.local', variant: 'destructive' as any });
+        // Fallback: use default question
+        setQuestions([{ question: 'Tema principal del texto', options: ['Descripción general', 'Publicidad', 'Deporte', 'Receta'], correct: 0 }]);
+        setGenerating(false);
+        setShowQuestions(true);
+        return;
+      }
       const body = {
         model: 'gpt-4o-mini',
         messages: [
@@ -83,18 +91,18 @@ Texto:\n"""${truncated}"""`;
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content || '';
       const extractJson = (raw: string): any => {
-        const fence = raw.match(/```(?:json)?\s*({[\s\S]*?})\s*```/i); if (fence) { try { return JSON.parse(fence[1]); } catch {} }
-        const tail = raw.match(/\{[\s\S]*\}$/); if (tail) { try { return JSON.parse(tail[0]); } catch {} }
+        const fence = raw.match(/```(?:json)?\s*({[\s\S]*?})\s*```/i); if (fence) { try { return JSON.parse(fence[1]); } catch { } }
+        const tail = raw.match(/\{[\s\S]*\}$/); if (tail) { try { return JSON.parse(tail[0]); } catch { } }
         const first = raw.indexOf('{'); const last = raw.lastIndexOf('}');
-        if (first !== -1 && last !== -1 && last > first) { const slice = raw.slice(first, last+1); try { return JSON.parse(slice); } catch {} }
+        if (first !== -1 && last !== -1 && last > first) { const slice = raw.slice(first, last + 1); try { return JSON.parse(slice); } catch { } }
         throw new Error('JSON no encontrado');
       };
       const parsed = extractJson(content);
       if (!Array.isArray(parsed.questions)) throw new Error('Estructura inválida');
-      const qs = parsed.questions.slice(0,5).map((q:any) => ({ question: q.question, options: q.options, correct: q.correctIndex }));
+      const qs = parsed.questions.slice(0, 5).map((q: any) => ({ question: q.question, options: q.options, correct: q.correctIndex }));
       setQuestions(qs);
       toast({ title: 'Preguntas generadas', description: 'Listas para responder.' });
-    } catch (e:any) {
+    } catch (e: any) {
       toast({ title: 'Fallo generando preguntas', description: e.message, variant: 'destructive' as any });
       setQuestions([{ question: 'Tema principal del texto', options: ['Descripción general', 'Publicidad', 'Deporte', 'Receta'], correct: 0 }]);
     } finally {
@@ -156,22 +164,30 @@ Texto:\n"""${truncated}"""`;
       setCurrentQuestion(c => c + 1);
     } else {
       // Finaliza cuestionario -> calcula métricas y muestra resumen
-  // Usamos únicamente la duración de lectura (sin tiempo de contestar preguntas)
-  const duration = readingDurationSec ?? (startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 60);
-  const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
-  const accuracyPct = Math.round(accuracy * 100);
-  const readingWPM = Math.round(words.length / (duration / 60));
+      // Usamos únicamente la duración de lectura (sin tiempo de contestar preguntas)
+      const duration = readingDurationSec ?? (startTime ? Math.floor((Date.now() - startTime.getTime()) / 1000) : 60);
+      const accuracy = newAnswers.filter(a => a).length / newAnswers.length;
+      const accuracyPct = Math.round(accuracy * 100);
+      const readingWPM = Math.round(words.length / (duration / 60));
       const score = Math.round(readingWPM * accuracy * 10); // métrica combinada
       setSummaryData({ wpm: readingWPM, accuracyPct, score, duration });
 
       // Persistencia / XP
       const xp = computeGameXp('word_race', { wpm: readingWPM, accuracy, score, level: difficulty });
       if (user) {
-        await recordGameRun({ userId: user.id, gameCode: 'uploaded_reading', level: difficulty, score, accuracy: accuracyPct, durationSec: duration, params: { readingWPM } });
+        await recordGameRun({ userId: user.uid, gameCode: 'uploaded_reading', level: difficulty, score, accuracy: accuracyPct, durationSec: duration, params: { readingWPM }, xpEarned: xp });
+
+        // Save reading test results to Firestore
+        await saveReadingTest(user.uid, {
+          wpm: readingWPM,
+          comprehensionPercent: accuracyPct,
+          questionsAsked: questions.length,
+          questionsCorrect: newAnswers.filter(a => a).length,
+        });
       }
-      awardXp(user?.id, xp, 'game', { game: 'uploaded_reading' });
-      trackEvent(user?.id, 'wpm_measured', { mode: 'uploaded', wpm: readingWPM });
-      trackEvent(user?.id, 'game_end', { game: 'uploaded_reading', score, accuracy: accuracyPct });
+      awardXp(user?.uid, xp, 'game', { game: 'uploaded_reading' });
+      trackEvent(user?.uid, 'wpm_measured', { mode: 'uploaded', wpm: readingWPM });
+      trackEvent(user?.uid, 'game_end', { game: 'uploaded_reading', score, accuracy: accuracyPct });
       setShowSummary(true);
     }
   };

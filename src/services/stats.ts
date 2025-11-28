@@ -1,5 +1,9 @@
-import { supabase } from '@/integrations/supabase/client';
-import { startOfDay, endOfDay } from 'date-fns';
+import { getActiveGoal } from '@/services/firestore/goals';
+import { getTotalXp, getTodayXp } from '@/services/firestore/xpLedger';
+import { getStreak } from '@/services/firestore/streaks';
+import { getTodaySessionMinutes } from '@/services/firestore/sessions';
+import { getLatestReadingTest } from '@/services/firestore/readingTests';
+import { getTodayRivalXp } from '@/services/firestore/rivalStates';
 
 export interface DashboardStats {
   totalXP: number;
@@ -12,49 +16,36 @@ export interface DashboardStats {
   userXPToday: number;
 }
 
-function isoRangeToday(): { start: string; end: string } {
-  const now = new Date();
-  const start = startOfDay(now).toISOString();
-  const end = endOfDay(now).toISOString();
-  return { start, end };
-}
-
 export async function fetchDashboardStats(userId: string): Promise<DashboardStats> {
   if (!userId) throw new Error('Missing user id');
 
-  const { start, end } = isoRangeToday();
-
-  // Parallel queries
+  // Parallel queries to Firestore
   const [
-    goalsQ,
-    totalXpQ,
-    dailyXpQ,
-    streakQ,
-    todaySessionsQ,
-    latestTestQ,
-    rivalStateQ,
+    activeGoal,
+    totalXP,
+    userXPToday,
+    streak,
+    todayProgressMin,
+    latestTest,
+    rivalXPToday,
   ] = await Promise.all([
-    supabase.from('goals').select('*').eq('user_id', userId).eq('active', true).single(),
-    supabase.from('xp_ledger').select('delta').eq('user_id', userId),
-    supabase.from('xp_ledger').select('delta, created_at').eq('user_id', userId).gte('created_at', start).lt('created_at', end),
-    supabase.from('streaks').select('count').eq('user_id', userId).single(),
-    supabase.from('sessions').select('duration_min, started_at').eq('user_id', userId).gte('started_at', start).lt('started_at', end),
-    supabase.from('reading_tests').select('wpm, comp_pct').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).single(),
-    supabase.from('rival_states').select('xp_accum').eq('user_id', userId).gte('date', start.split('T')[0]).lte('date', end.split('T')[0]).single(),
+    getActiveGoal(userId),
+    getTotalXp(userId),
+    getTodayXp(userId),
+    getStreak(userId),
+    getTodaySessionMinutes(userId),
+    getLatestReadingTest(userId),
+    getTodayRivalXp(userId),
   ]);
-
-  const totalXP = (totalXpQ.data || []).reduce((s, r: any) => s + (r.delta || 0), 0);
-  const userXPToday = (dailyXpQ.data || []).reduce((s, r: any) => s + (r.delta || 0), 0);
-  const todayProgressMin = (todaySessionsQ.data || []).reduce((s, r: any) => s + (r.duration_min || 0), 0);
 
   return {
     totalXP,
     userXPToday,
-    rivalXPToday: rivalStateQ.data?.xp_accum || 0,
-    streak: streakQ.data?.count || 0,
-    todayGoal: goalsQ.data?.minutes_daily || 10,
+    rivalXPToday,
+    streak: streak?.count || 0,
+    todayGoal: activeGoal?.dailyMinutes || 10,
     todayProgressMin,
-    lastWPM: latestTestQ.data?.wpm || 0,
-    lastComprehension: latestTestQ.data?.comp_pct || 0,
+    lastWPM: latestTest?.wpm || 0,
+    lastComprehension: latestTest?.comprehensionPercent || 0,
   };
 }

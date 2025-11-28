@@ -7,9 +7,9 @@ import { componentTagger } from "lovable-tagger";
 export default defineConfig(({ mode }) => ({
   server: {
     // Expose dev server over LAN
-  host: true, // equivalent to 0.0.0.0
-  port: 8080,
-  strictPort: true,
+    host: true, // equivalent to 0.0.0.0
+    port: 8080,
+    strictPort: true,
   },
   plugins: [
     react(),
@@ -19,5 +19,18 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdfjs': ['pdfjs-dist'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
+  optimizeDeps: {
+    exclude: ['pdfjs-dist'],
   },
 }));

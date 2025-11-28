@@ -1,16 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-
-interface FindWordsGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
-  difficulty?: number;
-  onBack?: () => void;
+onBack ?: () => void;
 }
 
 export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsGameProps) {
@@ -20,7 +8,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
   const [lettersGrid, setLettersGrid] = useState<string[][]>([]);
   const [hiddenWords, setHiddenWords] = useState<string[]>([]);
   const [foundWords, setFoundWords] = useState<Set<string>>(new Set());
-  const [selectedCells, setSelectedCells] = useState<Array<{row: number, col: number}>>([]);
+  const [selectedCells, setSelectedCells] = useState<Array<{ row: number, col: number }>>([]);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(120);
   const [startTime, setStartTime] = useState(0);
@@ -51,7 +39,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -59,7 +47,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
         .eq('user_id', user.id)
         .eq('game_code', 'find_words')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         setLevel(data.last_level);
       }
@@ -70,7 +58,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -87,15 +75,15 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
 
   const canPlaceWord = (grid: string[][], word: string, row: number, col: number, direction: number[]) => {
     const gridSize = grid.length;
-    
+
     for (let i = 0; i < word.length; i++) {
       const newRow = row + i * direction[0];
       const newCol = col + i * direction[1];
-      
+
       if (newRow < 0 || newRow >= gridSize || newCol < 0 || newCol >= gridSize) {
         return false;
       }
-      
+
       // Check if cell is empty or contains the same letter
       if (grid[newRow][newCol] !== '' && grid[newRow][newCol] !== word[i]) {
         return false;
@@ -115,34 +103,34 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
   const generateGrid = () => {
     const gridSize = Math.min(8 + Math.floor(level / 2), 12); // 8x8 to 12x12
     const numWords = Math.min(3 + level, 8); // 4 to 8 words
-    
+
     // Initialize empty grid
-    const grid: string[][] = Array(gridSize).fill(null).map(() => 
+    const grid: string[][] = Array(gridSize).fill(null).map(() =>
       Array(gridSize).fill('')
     );
-    
-  // Select words for this level (shuffle for randomness each level)
-  const shuffledWords = [...wordsList].sort(() => Math.random() - 0.5);
-  const selectedWords = shuffledWords.slice(0, numWords);
+
+    // Select words for this level (shuffle for randomness each level)
+    const shuffledWords = [...wordsList].sort(() => Math.random() - 0.5);
+    const selectedWords = shuffledWords.slice(0, numWords);
     const placedWords: string[] = [];
-    
+
     const directions = [
       [0, 1],   // horizontal
       [1, 0],   // vertical
       [1, 1],   // diagonal down-right
       [-1, 1],  // diagonal up-right
     ];
-    
+
     // Place each word
     selectedWords.forEach(word => {
       let placed = false;
       let attempts = 0;
-      
+
       while (!placed && attempts < 100) {
         const direction = directions[Math.floor(Math.random() * directions.length)];
         const row = Math.floor(Math.random() * gridSize);
         const col = Math.floor(Math.random() * gridSize);
-        
+
         if (canPlaceWord(grid, word, row, col, direction)) {
           placeWord(grid, word, row, col, direction);
           placedWords.push(word);
@@ -151,7 +139,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
         attempts++;
       }
     });
-    
+
     // Fill empty cells with random letters
     for (let i = 0; i < gridSize; i++) {
       for (let j = 0; j < gridSize; j++) {
@@ -160,16 +148,16 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
         }
       }
     }
-    
+
     setLettersGrid(grid);
     setHiddenWords(placedWords);
   };
 
   const handleCellClick = (rowIndex: number, colIndex: number) => {
     if (!gameStarted) return;
-    
+
     const cellExists = selectedCells.find(cell => cell.row === rowIndex && cell.col === colIndex);
-    
+
     if (cellExists) {
       // Remove cell if already selected
       setSelectedCells(prev => prev.filter(cell => !(cell.row === rowIndex && cell.col === colIndex)));
@@ -181,33 +169,33 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
 
   const submitWord = () => {
     if (selectedCells.length === 0) return;
-    
+
     const selectedLetters = selectedCells.map(pos => lettersGrid[pos.row][pos.col]).join('');
     const reversedLetters = selectedLetters.split('').reverse().join('');
-    
+
     // Check if word exists (forward or backward)
-    const foundWord = hiddenWords.find(word => 
+    const foundWord = hiddenWords.find(word =>
       word === selectedLetters || word === reversedLetters
     );
-    
+
     if (foundWord && !foundWords.has(foundWord)) {
       setFoundWords(prev => new Set([...prev, foundWord]));
       setScore(prev => prev + foundWord.length * 10);
-      
+
       // Check if all words found
       if (foundWords.size + 1 >= hiddenWords.length) {
         // Level up and generate new grid
         const newLevel = Math.min(level + 1, 10);
         setLevel(newLevel);
         saveLevelProgress(newLevel);
-        
+
         setTimeout(() => {
           setFoundWords(new Set());
           generateGrid();
         }, 1000);
       }
     }
-    
+
     setSelectedCells([]);
   };
 
@@ -261,7 +249,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
               <p className="text-sm text-muted-foreground">Nivel {level} • Sopa de letras {Math.min(8 + Math.floor(level / 2), 12)}×{Math.min(8 + Math.floor(level / 2), 12)}</p>
             </div>
           </div>
-          
+
           {gameStarted && (
             <div className="text-lg font-mono bg-card/80 px-3 py-1 rounded">
               {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
@@ -303,7 +291,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                         Pueden estar en cualquier dirección: horizontal, vertical o diagonal.
                       </p>
                     </div>
-                    <Button 
+                    <Button
                       onClick={startGame}
                       className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                     >
@@ -313,9 +301,9 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div 
+                    <div
                       className="grid gap-1 mx-auto"
-                      style={{ 
+                      style={{
                         gridTemplateColumns: `repeat(${lettersGrid[0]?.length || 8}, minmax(0, 1fr))`,
                         maxWidth: '500px'
                       }}
@@ -323,7 +311,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                       {lettersGrid.map((row, rowIndex) =>
                         row.map((letter, colIndex) => {
                           const selected = isSelected(rowIndex, colIndex);
-                          
+
                           return (
                             <Button
                               key={`${rowIndex}-${colIndex}`}
@@ -342,7 +330,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                         })
                       )}
                     </div>
-                    
+
                     <div className="flex justify-center gap-2">
                       <Button onClick={submitWord} disabled={selectedCells.length === 0}>
                         Enviar Palabra
@@ -360,7 +348,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
               </CardContent>
             </Card>
           </div>
-          
+
           {gameStarted && (
             <div className="space-y-4">
               <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
@@ -370,13 +358,12 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                 <CardContent>
                   <div className="space-y-2">
                     {hiddenWords.map(word => (
-                      <div 
+                      <div
                         key={word}
-                        className={`p-2 rounded text-sm transition-all duration-200 ${
-                          foundWords.has(word) 
-                            ? 'bg-success/20 border border-success text-success line-through' 
+                        className={`p-2 rounded text-sm transition-all duration-200 ${foundWords.has(word)
+                            ? 'bg-success/20 border border-success text-success line-through'
                             : 'bg-muted border border-border'
-                        }`}
+                          }`}
                       >
                         {word}
                       </div>
@@ -384,7 +371,7 @@ export function FindWordsGame({ onComplete, difficulty = 1, onBack }: FindWordsG
                   </div>
                 </CardContent>
               </Card>
-              
+
               {selectedCells.length > 0 && (
                 <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
                   <CardHeader>

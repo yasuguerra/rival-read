@@ -1,68 +1,49 @@
 import { useState, useEffect } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-import { SITE_URL } from '@/config/site';
+import { User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut as firebaseSignOut, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { createUserProfile } from '@/services/firestore/users';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      }
-    );
-
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   const signUp = async (email: string, password: string, displayName: string) => {
     setLoading(true);
     try {
-    const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-      emailRedirectTo: `${SITE_URL}/`,
-          data: {
-            display_name: displayName
-          }
-        }
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+      await updateProfile(userCredential.user, {
+        displayName: displayName
       });
 
-      if (error) {
-        toast({
-          title: "Error de registro",
-          description: error.message,
-          variant: "destructive"
-        });
-        return { error };
-      }
+      // Create user profile in Firestore
+      await createUserProfile(userCredential.user.uid, {
+        displayName: displayName,
+        email: email,
+        avatar: '👤', // Default avatar
+      });
 
       toast({
         title: "¡Registro exitoso!",
-        description: "Revisa tu email para confirmar tu cuenta.",
+        description: "Tu cuenta ha sido creada.",
         variant: "default"
       });
-      
-      return { error: null };
+
+      return { error: null, user: userCredential.user };
     } catch (error: any) {
       toast({
-        title: "Error inesperado",
+        title: "Error de registro",
         description: error.message,
         variant: "destructive"
       });
@@ -75,29 +56,17 @@ export function useAuth() {
   const signIn = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-
-      if (error) {
-        toast({
-          title: "Error de inicio de sesión",
-          description: error.message,
-          variant: "destructive"
-        });
-        return { error };
-      }
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
 
       toast({
         title: "¡Bienvenido de vuelta!",
         description: "Sesión iniciada correctamente.",
       });
-      
-      return { error: null };
+
+      return { error: null, user: userCredential.user };
     } catch (error: any) {
       toast({
-        title: "Error inesperado",
+        title: "Error de inicio de sesión",
         description: error.message,
         variant: "destructive"
       });
@@ -110,22 +79,13 @@ export function useAuth() {
   const signOut = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signOut();
-      
-      if (error) {
-        toast({
-          title: "Error",
-          description: error.message,
-          variant: "destructive"
-        });
-        return { error };
-      }
+      await firebaseSignOut(auth);
 
       toast({
         title: "Sesión cerrada",
         description: "¡Hasta la próxima!",
       });
-      
+
       return { error: null };
     } catch (error: any) {
       toast({
@@ -141,18 +101,7 @@ export function useAuth() {
 
   const sendPasswordReset = async (email: string) => {
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${SITE_URL}/auth/reset`
-      });
-
-      if (error) {
-        toast({
-          title: "No se pudo enviar el correo",
-          description: error.message,
-          variant: "destructive"
-        });
-        return { error };
-      }
+      await sendPasswordResetEmail(auth, email);
 
       toast({
         title: "Revisa tu correo",
@@ -172,7 +121,6 @@ export function useAuth() {
 
   return {
     user,
-    session,
     loading,
     signUp,
     signIn,

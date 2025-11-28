@@ -1,13 +1,19 @@
-import { supabase } from '@/integrations/supabase/client';
+import { db, collection, addDoc, Timestamp } from '@/lib/firebase';
+import type { CreateAnalyticsEvent } from '@/types/firestore';
 
-export type AnalyticsEventType = 'game_start' | 'game_end' | 'level_up' | 'xp_gain' | 'wpm_measured';
-
-export async function trackEvent(userId: string | undefined, eventType: AnalyticsEventType, meta: Record<string, any> = {}) {
+export async function trackEvent(userId: string, eventName: string, eventData: Record<string, any> = {}) {
   if (!userId) return;
-  // Cast to any until types regenerated including analytics_events
-  await (supabase as any).from('analytics_events').insert({
-    user_id: userId,
-    event_type: eventType,
-    meta
+
+  const analyticsEventsRef = collection(db, 'analytics_events');
+
+  const event: CreateAnalyticsEvent = {
+    userId,
+    eventName,
+    eventData,
+  };
+
+  await addDoc(analyticsEventsRef, {
+    ...event,
+    timestamp: Timestamp.now(),
   });
 }

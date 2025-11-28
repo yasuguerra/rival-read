@@ -1,5 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
-import { TablesInsert } from '@/integrations/supabase/types';
+import { saveGameRun } from '@/services/firestore/gameRuns';
 
 export interface RecordGameRunParams {
   userId: string;
@@ -10,29 +9,24 @@ export interface RecordGameRunParams {
   durationSec: number | null;
   params?: Record<string, any>;
   sessionId?: string;
+  xpEarned: number; // Add this to match Firestore schema
 }
 
 export async function recordGameRun(params: RecordGameRunParams) {
-  // Fetch game id by code (cached minimal query)
-  const { data: game } = await supabase
-    .from('games')
-    .select('id')
-    .eq('code', params.gameCode)
-    .maybeSingle();
+  try {
+    await saveGameRun(params.userId, {
+      gameCode: params.gameCode,
+      level: params.level,
+      score: params.score,
+      accuracy: params.accuracy || undefined,
+      wpm: params.params?.wpm,
+      durationSeconds: params.durationSec || undefined,
+      xpEarned: params.xpEarned,
+      sessionId: params.sessionId,
+    });
 
-  if (!game) return { error: new Error('Game not found') };
-
-  const insert: TablesInsert<'game_runs'> = {
-    user_id: params.userId,
-    game_id: game.id,
-    level: params.level,
-    score: params.score,
-    accuracy: params.accuracy,
-    duration_sec: params.durationSec,
-    params_json: params.params || null,
-    session_id: params.sessionId || null
-  };
-
-  const { error } = await supabase.from('game_runs').insert(insert);
-  return { error };
+    return { error: null };
+  } catch (error) {
+    return { error: error as Error };
+  }
 }

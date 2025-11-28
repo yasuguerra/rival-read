@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+
 
 type Params = {
   userId?: string;
@@ -17,42 +17,27 @@ export function usePersistentGameLevel({ userId, gameCode, level, setLevel }: Pa
   // 1) Cargar nivel guardado
   useEffect(() => {
     if (!userId) return;
-    let cancelled = false;
 
-    (async () => {
-      type Row = { last_level: number | null };
-      const { data, error } = await supabase
-        .from("user_game_state")
-        .select("last_level")
-        .eq("user_id", userId)
-        .eq("game_code", gameCode)
-        .maybeSingle<Row>();
-
-      if (!cancelled && !error && typeof data?.last_level === "number") {
-        setLevel(data.last_level);
+    try {
+      const key = `game_level_${userId}_${gameCode}`;
+      const savedLevel = localStorage.getItem(key);
+      if (savedLevel) {
+        setLevel(parseInt(savedLevel, 10));
       }
-    })();
-
-    return () => { cancelled = true; };
+    } catch (e) {
+      console.warn('Error loading level from localStorage', e);
+    }
   }, [userId, gameCode, setLevel]);
 
   // 2) Guardar nivel cuando cambie
   useEffect(() => {
     if (!userId) return;
 
-    (async () => {
-      try {
-        await supabase
-          .from("user_game_state")
-          .upsert({
-            user_id: userId,
-            game_code: gameCode,
-            last_level: level,
-            updated_at: new Date().toISOString(),
-          });
-      } catch {
-        // silencioso
-      }
-    })();
+    try {
+      const key = `game_level_${userId}_${gameCode}`;
+      localStorage.setItem(key, level.toString());
+    } catch (e) {
+      console.warn('Error saving level to localStorage', e);
+    }
   }, [userId, gameCode, level]);
 }

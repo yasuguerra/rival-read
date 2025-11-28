@@ -1,16 +1,4 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-
-interface AnagramsGameProps {
-  onComplete: (score: number, accuracy: number, duration: number) => void;
-  difficulty?: number;
-  onBack?: () => void;
+onBack ?: () => void;
 }
 
 export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGameProps) {
@@ -30,7 +18,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
   const [startTime, setStartTime] = useState<Date | null>(null);
   // Used to force remount of option buttons every round so no residual styles persist
   const [roundId, setRoundId] = useState(0);
-  
+
   // When round changes, ensure no element keeps focus (mobile purple highlight)
   useEffect(() => {
     setTimeout(() => {
@@ -67,7 +55,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -75,7 +63,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
         .eq('user_id', user.id)
         .eq('game_code', 'anagrams')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         setLevel(data.last_level);
       }
@@ -86,7 +74,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -114,7 +102,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
   const generateWrongOptions = (word: string, count: number) => {
     const options = new Set<string>();
     const allWords = Object.values(wordsByLength).flat();
-    
+
     // Add some scrambled versions that are NOT the original word
     while (options.size < count) {
       let wrongOption;
@@ -125,7 +113,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
         if (wrongOption === word) continue;
       } else {
         // Use a word of similar length
-        const similarLengthWords = allWords.filter(w => 
+        const similarLengthWords = allWords.filter(w =>
           Math.abs(w.length - word.length) <= 1 && w !== word
         );
         if (similarLengthWords.length > 0) {
@@ -134,10 +122,10 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
           wrongOption = scrambleWord(word);
         }
       }
-      
+
       options.add(wrongOption);
     }
-    
+
     return Array.from(options);
   };
   const generateRound = () => {
@@ -159,33 +147,33 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
     setCorrectAnswer(selectedWord);
     setFeedback(null);
     setSelectedIndex(null);
-  setRoundId(prev => prev + 1); // advance round key
+    setRoundId(prev => prev + 1); // advance round key
   };
 
   const handleAnswer = (selectedWord: string, idx?: number) => {
     if (feedback) return;
     if (typeof idx === 'number') setSelectedIndex(idx);
-    
+
     const isCorrect = selectedWord === correctAnswer;
     setFeedback(isCorrect ? 'correct' : 'incorrect');
-    
+
     if (isCorrect) {
       setScore(prev => prev + correctAnswer.length * 5); // More points for longer words
     } else {
       setErrors(prev => prev + 1);
     }
-    
+
     setTimeout(() => {
       setRoundsCompleted(prev => {
         const newRounds = prev + 1;
-        
+
         // Check if should level up (every 5 correct answers)
         if (isCorrect && (score + correctAnswer.length * 5) % 50 === 0) {
           const newLevel = Math.min(level + 1, 10);
           setLevel(newLevel);
           saveLevelProgress(newLevel);
         }
-        
+
         if (timeLeft <= 5) {
           // Game ending
           handleGameEnd();
@@ -193,7 +181,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
           // Generate new round
           generateRound();
         }
-        
+
         return newRounds;
       });
     }, 1500);
@@ -294,7 +282,7 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                     <p><strong>Nivel {level}:</strong> Palabras de {Math.min(4 + Math.floor(level / 2), 8)} letras</p>
                   </div>
                 </div>
-                <Button 
+                <Button
                   onClick={startGame}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                 >
@@ -319,10 +307,10 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                     {options.map((option, index) => {
                       const stateClasses = feedback
                         ? (option === correctAnswer
-                            ? 'bg-success/20 border-success text-success'
-                            : index === selectedIndex && feedback === 'incorrect'
-                              ? 'bg-destructive/20 border-destructive text-destructive'
-                              : 'opacity-60')
+                          ? 'bg-success/20 border-success text-success'
+                          : index === selectedIndex && feedback === 'incorrect'
+                            ? 'bg-destructive/20 border-destructive text-destructive'
+                            : 'opacity-60')
                         : 'bg-background border-border/40 text-foreground hover:bg-muted/40';
                       return (
                         <Button
@@ -341,9 +329,8 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
 
                 {/* Feedback */}
                 {feedback && (
-                  <div className={`text-center text-lg font-semibold transition-all duration-300 ${
-                    feedback === 'correct' ? 'text-success' : 'text-destructive'
-                  }`}>
+                  <div className={`text-center text-lg font-semibold transition-all duration-300 ${feedback === 'correct' ? 'text-success' : 'text-destructive'
+                    }`}>
                     {feedback === 'correct' ? '¡Correcto!' : '¡Incorrecto!'}
                     {feedback === 'incorrect' && (
                       <p className="text-sm text-muted-foreground mt-1">
@@ -352,10 +339,10 @@ export function AnagramsGame({ onComplete, difficulty = 1, onBack }: AnagramsGam
                     )}
                   </div>
                 )}
-                
+
                 <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={resetGame}
                     className="border-border/50"
                   >

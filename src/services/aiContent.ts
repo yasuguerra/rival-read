@@ -1,6 +1,5 @@
-// Lightweight OpenAI content generation service (client-side). For production,
-// migrate to a serverless / edge function to avoid exposing the raw API key.
-// Uses fetch to the OpenAI API with gpt-4o-mini for Spanish passages + 4 questions.
+// Gemini (Google AI) content generation service for generating reading passages and questions
+// Uses Google's Gemini API with Google Cloud credits
 
 export interface GeneratedPassage {
   topic: string;
@@ -17,12 +16,10 @@ export interface GeneratedPassage {
 interface GenerateOptions {
   topic: string;
   level?: number; // difficulty 1-10
-  model?: string; // override model
   signal?: AbortSignal;
 }
 
-const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
 const systemPrompt = `Eres un generador de textos educativos breves en ESPAÑOL.
 Produce:
@@ -41,48 +38,73 @@ function buildUserPrompt(topic: string, level: number) {
 }
 
 export async function generateReadingPassage(opts: GenerateOptions): Promise<GeneratedPassage> {
-  const key = import.meta.env.VITE_OPENAI_API_KEY || import.meta.env.OPENAI_API_KEY;
-  if (!key) {
-    throw new Error('Missing VITE_OPENAI_API_KEY');
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'your-gemini-api-key-here') {
+    throw new Error('Missing VITE_GEMINI_API_KEY. Get your API key from https://makersuite.google.com/app/apikey');
   }
-  const model = opts.model || DEFAULT_MODEL;
+
   const level = Math.min(Math.max(opts.level ?? 1, 1), 10);
 
-  const body = {
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: buildUserPrompt(opts.topic, level) }
+  const requestBody = {
+    contents: [
+      {
+        parts: [
+          {
+            text: `${systemPrompt}\n\n${buildUserPrompt(opts.topic, level)}`
+          }
+        ]
+      }
     ],
-    temperature: 0.8,
-    max_tokens: 750,
+    generationConfig: {
+      temperature: 0.8,
+      maxOutputTokens: 1024,
+      responseMimeType: "application/json"
+    }
   };
 
-  const res = await fetch(OPENAI_ENDPOINT, {
+  const url = `${GEMINI_ENDPOINT}?key=${apiKey}`;
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(requestBody),
     signal: opts.signal
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`OpenAI error ${res.status}: ${text}`);
+    throw new Error(`Gemini API error ${res.status}: ${text}`);
   }
-  const json = await res.json();
-  const content = json.choices?.[0]?.message?.content || '';
 
-  // Attempt to extract JSON block
-  const match = content.match(/\{[\s\S]*\}$/);
-  if (!match) throw new Error('No JSON found in model response');
+  const json = await res.json();
+
+  // Extract text from Gemini response structure
+  const responseText = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+  if (!responseText) {
+    throw new Error('No response from Gemini API');
+  }
+
+  // Parse the JSON response
   let parsed: any;
-  try { parsed = JSON.parse(match[0]); } catch (e) { throw new Error('Invalid JSON from model'); }
+  try {
+    // Gemini should return JSON directly since we set responseMimeType
+    parsed = JSON.parse(responseText);
+  } catch (e) {
+    // Try to extract JSON if it's wrapped in markdown
+    const match = responseText.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON found in Gemini response');
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch (e2) {
+      throw new Error('Invalid JSON from Gemini');
+    }
+  }
 
   if (!parsed.passage || !Array.isArray(parsed.questions) || parsed.questions.length !== 4) {
-    throw new Error('Malformed content structure');
+    throw new Error('Malformed content structure from Gemini');
   }
 
   const questions = parsed.questions.map((q: any) => ({
@@ -96,12 +118,15 @@ export async function generateReadingPassage(opts: GenerateOptions): Promise<Gen
     topic: opts.topic,
     passage: parsed.passage,
     questions,
-    meta: { tokensEstimated: json.usage?.total_tokens ?? 0 }
+    meta: {
+      tokensEstimated: json.usageMetadata?.totalTokenCount ?? 0
+    }
   };
 }
 
 // Simple in-memory cache (session scope)
 const cache = new Map<string, GeneratedPassage>();
+
 export async function getOrGeneratePassage(topic: string, level: number): Promise<GeneratedPassage> {
   const key = `${topic.toLowerCase()}::${level}`;
   if (cache.has(key)) return cache.get(key)!;

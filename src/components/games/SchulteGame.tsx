@@ -54,7 +54,7 @@ type MinimalAnalyticsEvent = { type: string } & Record<string, unknown>;
 const emitEvent = (e: MinimalAnalyticsEvent) => {
   try {
     (trackEvent as unknown as (ev: MinimalAnalyticsEvent) => void)?.(e);
-  } catch {}
+  } catch { }
 };
 /* ----------------------------------------------------------------------------------------- */
 
@@ -280,7 +280,7 @@ export default function SchulteGame({
         </Card>
       </div>
 
-      <Card className="border-border/60">
+      <Card className="border-border/60 relative overflow-hidden">
         <CardContent className="p-3 sm:p-4">
           {/* 🔼 MOVIDO ARRIBA: estado + acciones */}
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -291,7 +291,7 @@ export default function SchulteGame({
             </div>
             <div className="flex items-center gap-2">
               {!running ? (
-                <Button onClick={start} type="button">Iniciar</Button>
+                <Button onClick={start} type="button" className="bg-gradient-primary">Iniciar</Button>
               ) : (
                 <Button variant="outline" onClick={resetSession} type="button">
                   <RotateCcw className="mr-1 h-4 w-4" />
@@ -303,30 +303,38 @@ export default function SchulteGame({
 
           {/* Grid */}
           <div
-            className="grid gap-1 sm:gap-1.5"
+            className="grid gap-2 sm:gap-3 relative"
             style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`, touchAction: "manipulation" }}
             role="grid"
             aria-label={`Tabla ${gridSize} por ${gridSize}`}
           >
+            {/* Center Focus Dot (Optional visual aid) */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0 opacity-10">
+              <div className="w-2 h-2 bg-primary rounded-full"></div>
+            </div>
+
             {cells.map((cell, idx) => {
               const isNext = cell.n === currentTarget;
               const showCue = showNextCue && isNext; // 👈 solo resalta si boardLevel < 3
               return (
                 <button
-                  key={cell.n}
+                  key={`${cell.n}-${idx}`} // Added idx to key to force re-render on shuffle if needed, though n is unique
                   onClick={() => onCellClick(idx)}
                   disabled={cell.found || !running}
                   type="button"
                   className={[
-                    "aspect-square select-none rounded-md border text-center align-middle",
-                    "text-base sm:text-lg md:text-xl lg:text-2xl",
-                    "flex items-center justify-center",
+                    "aspect-square select-none rounded-xl border text-center align-middle transition-all duration-200 z-10",
+                    "text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold",
+                    "flex items-center justify-center shadow-sm",
+                    "hover:scale-[1.05] active:scale-95",
                     cell.found
-                      ? "bg-muted text-muted-foreground"
+                      ? "bg-muted text-muted-foreground opacity-50 scale-90"
                       : showCue
-                      ? "border-primary/80 bg-primary/5 font-semibold"
-                      : "bg-card",
+                        ? "border-primary bg-primary/10 text-primary shadow-glow-primary scale-105"
+                        : "bg-card hover:bg-accent/10 hover:border-accent text-foreground",
+                    "animate-in zoom-in duration-300"
                   ].join(" ")}
+                  style={{ animationDelay: `${idx * 20}ms` }}
                 >
                   {cell.n}
                 </button>

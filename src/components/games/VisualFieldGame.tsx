@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+
 import { useAuth } from '@/hooks/useAuth';
 
 interface VisualFieldGameProps {
@@ -17,7 +17,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
   const [level, setLevel] = useState(difficulty);
   const [gameStarted, setGameStarted] = useState(false);
   const [charactersGrid, setCharactersGrid] = useState<string[][]>([]);
-  const [highlightedPositions, setHighlightedPositions] = useState<Array<{row: number, col: number}>>([]);
+  const [highlightedPositions, setHighlightedPositions] = useState<Array<{ row: number, col: number }>>([]);
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [showTime, setShowTime] = useState(1000);
@@ -48,17 +48,11 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
-      const { data } = await supabase
-        .from('user_game_state')
-        .select('last_level')
-        .eq('user_id', user.id)
-        .eq('game_code', 'visual_field')
-        .maybeSingle();
-      
-      if (data?.last_level) {
-        setLevel(data.last_level);
+      const savedLevel = localStorage.getItem(`game_level_${user.uid}_visual_field`);
+      if (savedLevel) {
+        setLevel(parseInt(savedLevel, 10));
       }
     } catch (error) {
       console.error('Error loading saved level:', error);
@@ -67,16 +61,9 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
-      await supabase
-        .from('user_game_state')
-        .upsert({
-          user_id: user.id,
-          game_code: 'visual_field',
-          last_level: newLevel,
-          updated_at: new Date().toISOString()
-        });
+      localStorage.setItem(`game_level_${user.uid}_visual_field`, newLevel.toString());
     } catch (error) {
       console.error('Error saving level:', error);
     }
@@ -99,7 +86,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
   const generateGrid = () => {
     const gridSize = Math.min(7 + Math.floor(level / 2), 11); // 7x7 to 11x11
     const grid: string[][] = [];
-    
+
     // Fill grid with random characters
     const allChars = characterSets.letters + characterSets.numbers;
     for (let i = 0; i < gridSize; i++) {
@@ -109,7 +96,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
       }
       grid.push(row);
     }
-    
+
     return grid;
   };
 
@@ -117,17 +104,17 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
     const grid = generateGrid();
     const gridSize = grid.length;
     const center = Math.floor(gridSize / 2);
-    
+
     // Set central character
     const centralChar = (characterSets.letters + characterSets.numbers)[Math.floor(Math.random() * (characterSets.letters + characterSets.numbers).length)];
     grid[center][center] = centralChar;
-    
+
     // Calculate distance based on level (further = harder)
     const distance = Math.min(2 + Math.floor(level / 2), Math.floor(gridSize / 2) - 1);
     const numPeripherals = Math.min(2 + Math.floor(level / 3), 4); // 2 to 4 peripheral characters
-    
-    const positions: Array<{row: number, col: number}> = [];
-    
+
+    const positions: Array<{ row: number, col: number }> = [];
+
     // Generate peripheral positions at specified distance
     for (let i = 0; i < numPeripherals; i++) {
       let row, col, attempts = 0;
@@ -136,18 +123,18 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
         row = center + Math.round(distance * Math.sin(angle));
         col = center + Math.round(distance * Math.cos(angle));
         attempts++;
-      } while ((row < 0 || row >= gridSize || col < 0 || col >= gridSize || 
-                positions.some(pos => pos.row === row && pos.col === col)) && attempts < 20);
-      
+      } while ((row < 0 || row >= gridSize || col < 0 || col >= gridSize ||
+        positions.some(pos => pos.row === row && pos.col === col)) && attempts < 20);
+
       if (attempts < 20) {
         positions.push({ row, col });
       }
     }
-    
+
     // Decide if peripheral characters should be equal or different
     const shouldBeEqual = Math.random() > 0.5;
     setCorrectAnswer(shouldBeEqual ? 'equal' : 'different');
-    
+
     if (shouldBeEqual) {
       // All peripheral characters are the same
       const peripheralChar = (characterSets.letters + characterSets.numbers)[Math.floor(Math.random() * (characterSets.letters + characterSets.numbers).length)];
@@ -169,10 +156,10 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
         }
       });
     }
-    
+
     setCharactersGrid(grid);
     setHighlightedPositions([{ row: center, col: center }, ...positions]);
-    
+
     // Adjust show time based on level
     setShowTime(Math.max(300, 1200 - level * 50)); // 1200ms to 300ms
   };
@@ -180,7 +167,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
   const startRound = () => {
     generateRound();
     setShowingCharacters(true);
-    
+
     setTimeout(() => {
       setShowingCharacters(false);
     }, showTime);
@@ -188,14 +175,14 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
 
   const handleAnswer = (answer: 'equal' | 'different') => {
     if (showingCharacters) return;
-    
+
     const isCorrect = answer === correctAnswer;
     const newAttempts = attempts + 1;
     setAttempts(newAttempts);
-    
+
     if (isCorrect) {
       setScore(prev => prev + 10 + level * 2); // More points for higher levels
-      
+
       // Level up every 5 correct answers in a row
       if (newAttempts % 5 === 0 && score > 0) {
         const newLevel = Math.min(level + 1, 10);
@@ -203,11 +190,11 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
         saveLevelProgress(newLevel);
       }
     }
-    
+
     setTimeout(() => {
       const newRound = currentRound + 1;
       setCurrentRound(newRound);
-      
+
       if (newRound > 20) { // 20 rounds per game
         handleGameEnd();
       } else {
@@ -218,7 +205,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
 
   const handleGameEnd = () => {
     if (!startTime) return;
-    
+
     const duration = (Date.now() - startTime.getTime()) / 1000;
     const accuracy = attempts > 0 ? (score / (attempts * (10 + level * 2))) : 0;
     onComplete(score, accuracy, duration);
@@ -300,7 +287,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                     <p>• El nivel aumenta la distancia y usa caracteres más similares</p>
                   </div>
                 </div>
-                <Button 
+                <Button
                   onClick={startGame}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                 >
@@ -312,9 +299,9 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
               <div className="space-y-6">
                 <div className="text-center">
                   <div className="relative">
-                    <div 
+                    <div
                       className="grid gap-1 mx-auto"
-                      style={{ 
+                      style={{
                         gridTemplateColumns: `repeat(${charactersGrid[0]?.length || 7}, minmax(0, 1fr))`,
                         maxWidth: '500px'
                       }}
@@ -324,19 +311,19 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                           const isHighlighted = highlightedPositions.some(
                             pos => pos.row === rowIndex && pos.col === colIndex
                           );
-                          const isCentral = highlightedPositions[0]?.row === rowIndex && 
-                                           highlightedPositions[0]?.col === colIndex;
-                          
+                          const isCentral = highlightedPositions[0]?.row === rowIndex &&
+                            highlightedPositions[0]?.col === colIndex;
+
                           return (
                             <div
                               key={`${rowIndex}-${colIndex}`}
                               className={`
                                 aspect-square flex items-center justify-center font-mono border transition-all duration-200
                                 ${charactersGrid[0]?.length <= 7 ? 'text-base' : 'text-sm'}
-                                ${isCentral 
-                                  ? 'bg-primary text-white border-primary font-bold shadow-glow-primary' 
-                                  : isHighlighted 
-                                    ? 'bg-warning text-black border-warning font-bold' 
+                                ${isCentral
+                                  ? 'bg-primary text-white border-primary font-bold shadow-glow-primary'
+                                  : isHighlighted
+                                    ? 'bg-warning text-black border-warning font-bold'
                                     : showingCharacters
                                       ? 'bg-muted text-muted-foreground border-border'
                                       : 'bg-muted/40 text-muted-foreground/40 border-border'
@@ -349,7 +336,7 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                         })
                       )}
                     </div>
-                    
+
                     {/* Central fixation point */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                       <div className="w-3 h-3 bg-red-500 rounded-full shadow-lg"></div>
@@ -363,14 +350,14 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                       ¿Los caracteres amarillos (periféricos) son iguales?
                     </p>
                     <div className="flex justify-center gap-4">
-                      <Button 
+                      <Button
                         onClick={() => handleAnswer('equal')}
                         className="bg-success hover:bg-success/80 text-white"
                         size="lg"
                       >
                         Iguales
                       </Button>
-                      <Button 
+                      <Button
                         onClick={() => handleAnswer('different')}
                         className="bg-destructive hover:bg-destructive/80 text-white"
                         size="lg"
@@ -389,10 +376,10 @@ export function VisualFieldGame({ onComplete, difficulty = 1, onBack }: VisualFi
                     </p>
                   </div>
                 )}
-                
+
                 <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={resetGame}
                     className="border-border/50"
                   >

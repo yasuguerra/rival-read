@@ -1,18 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { Input } from '@/components/ui/input';
-import { ArrowLeft, Play, RotateCcw } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { trackEvent } from '@/services/analytics';
-import type { GameCompleteHandler, GameCompleteExtras } from '@/types/games';
-
-interface NumberMemoryGameProps {
-  onComplete: GameCompleteHandler;
-  difficulty?: number;
-  onBack?: () => void;
+onComplete: GameCompleteHandler;
+difficulty ?: number;
+onBack ?: () => void;
 }
 
 export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberMemoryGameProps) {
@@ -38,7 +26,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
 
   const loadSavedLevel = async () => {
     if (!user) return;
-    
+
     try {
       const { data } = await supabase
         .from('user_game_state')
@@ -46,7 +34,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
         .eq('user_id', user.id)
         .eq('game_code', 'number_memory')
         .maybeSingle();
-      
+
       if (data?.last_level) {
         const savedLevel = data.last_level;
         setLevel(savedLevel);
@@ -59,7 +47,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
 
   const saveLevelProgress = async (newLevel: number) => {
     if (!user) return;
-    
+
     try {
       await supabase
         .from('user_game_state')
@@ -88,7 +76,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
     setUserInput('');
     setGamePhase('showing');
     setRoundStartTime(new Date());
-    
+
     setTimeout(() => {
       setGamePhase('input');
     }, showTime);
@@ -96,18 +84,18 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
 
   const checkAnswer = () => {
     if (!roundStartTime) return;
-    
+
     const isCorrect = userInput === currentNumber;
     const newAttempts = attempts + 1;
     setAttempts(newAttempts);
-    
+
     if (isCorrect) {
       setScore(prev => prev + Math.pow(2, digits - 3)); // Exponential scoring: 2^(digits-3)
       setCorrectAttempts(prev => prev + 1);
       setCorrectStreak(prev => {
         const newStreak = prev + 1;
         setIncorrectStreak(0);
-        
+
         // Level up every 3 correct answers
         if (newStreak % 3 === 0) {
           const newLevel = Math.min(level + 1, 10);
@@ -119,16 +107,16 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
           setShowTime(prev => Math.max(prev - 50, 1000));
           trackEvent(user?.id, 'level_up', { game: 'number_memory', newLevel });
         }
-        
+
         return newStreak;
       });
-  } else {
+    } else {
       setIncorrectStreak(prev => {
         const newStreak = prev + 1;
         setCorrectStreak(0);
-        
+
         // Level down every 3 incorrect answers
-  if (newStreak % 3 === 0) {
+        if (newStreak % 3 === 0) {
           const newLevel = Math.max(level - 1, 1);
           const newDigits = Math.max(3 + newLevel, 4);
           setLevel(newLevel);
@@ -137,13 +125,13 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
           // Slightly increase show time when level decreases
           setShowTime(prev => Math.min(prev + 100, 3000));
         }
-        
+
         return newStreak;
       });
     }
-    
+
     setGamePhase('feedback');
-    
+
     setTimeout(() => {
       if (newAttempts >= 15) { // 15 attempts per game
         handleGameEnd();
@@ -155,7 +143,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
 
   const handleGameEnd = async () => {
     if (!startTime) return;
-    
+
     const duration = (Date.now() - startTime.getTime()) / 1000;
     const accuracyFraction = attempts > 0 ? correctAttempts / attempts : 0;
     trackEvent(user?.id, 'game_end', { game: 'number_memory', score, accuracy: accuracyFraction * 100, attempts, level, digits });
@@ -179,9 +167,9 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
   const startGame = () => {
     setScore(0);
     setAttempts(0);
-  setCorrectStreak(0);
-  setIncorrectStreak(0);
-  setCorrectAttempts(0);
+    setCorrectStreak(0);
+    setIncorrectStreak(0);
+    setCorrectAttempts(0);
     setStartTime(new Date());
     setGamePhase('ready');
     trackEvent(user?.id, 'game_start', { game: 'number_memory', level });
@@ -268,7 +256,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
                     <p><strong>XP:</strong> Escala exponencialmente con dificultad (2^(dígitos-3))</p>
                   </div>
                 </div>
-                <Button 
+                <Button
                   onClick={startGame}
                   className="bg-gradient-primary hover:shadow-glow-primary transition-all duration-300"
                 >
@@ -311,7 +299,7 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
                       maxLength={digits}
                     />
                     <div className="flex gap-2 justify-center">
-                      <Button 
+                      <Button
                         onClick={checkAnswer}
                         disabled={userInput.length !== digits}
                         className="bg-gradient-primary"
@@ -329,9 +317,8 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
 
                 {gamePhase === 'feedback' && (
                   <div className="text-center space-y-4">
-                    <div className={`text-3xl font-bold ${
-                      userInput === currentNumber ? 'text-success' : 'text-destructive'
-                    }`}>
+                    <div className={`text-3xl font-bold ${userInput === currentNumber ? 'text-success' : 'text-destructive'
+                      }`}>
                       {userInput === currentNumber ? '¡Correcto!' : '¡Incorrecto!'}
                     </div>
                     <div className="space-y-2 text-sm">
@@ -345,10 +332,10 @@ export function NumberMemoryGame({ onComplete, difficulty = 1, onBack }: NumberM
                     </div>
                   </div>
                 )}
-                
+
                 <div className="flex justify-center">
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     onClick={resetGame}
                     className="border-border/50"
                   >

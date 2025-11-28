@@ -36,7 +36,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
   usePersistentGameLevel({ userId: user?.id, gameCode: 'word_race', level, setLevel });
   const baseWPM = 150 + (level * 25); // 150-400 WPM range
   const wordsPerChunk = Math.min(1 + Math.floor(level / 2), 3); // 1-3 words per chunk
-  
+
   const [text, setText] = useState('');
   const [words, setWords] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -56,6 +56,7 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
 
   const generateQuestions = useCallback((textContent: string): Question[] => {
     const sentences = textContent.split('.').filter(s => s.trim().length > 10);
+    // In a real app, these would be dynamically generated or fetched
     const questionTemplates = [
       {
         type: 'main_topic',
@@ -176,142 +177,158 @@ export function WordRaceGame({ onComplete, difficulty, onBack }: WordRaceGamePro
   };
 
   const progress = words.length > 0 ? (currentIndex / words.length) * 100 : 0;
-  const estimatedWPM = startTime && currentIndex > 0 
+  const estimatedWPM = startTime && currentIndex > 0
     ? Math.round((currentIndex / (Date.now() - startTime.getTime())) * 60000)
     : 0;
 
   if (showQuestions) {
     return (
-      <Card key={`questions-${currentQuestion}`} className="border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Brain className="w-5 h-5 text-accent" />
-            Comprensión - Pregunta {currentQuestion + 1} de {questions.length}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {questions[currentQuestion] && (
-            <>
-              <div className="text-center">
-                <h3 className="text-lg font-semibold mb-4">
-                  {questions[currentQuestion].question}
-                </h3>
-              </div>
+      <div className="min-h-screen bg-gradient-bg flex items-center justify-center p-4">
+        <Card key={`questions-${currentQuestion}`} className="border-border/50 bg-card/80 backdrop-blur-sm w-full max-w-2xl animate-in zoom-in duration-300">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-accent" />
+              Comprensión - Pregunta {currentQuestion + 1} de {questions.length}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {questions[currentQuestion] && (
+              <>
+                <div className="text-center">
+                  <h3 className="text-xl font-semibold mb-6 leading-relaxed">
+                    {questions[currentQuestion].question}
+                  </h3>
+                </div>
 
-              <div className="grid grid-cols-1 gap-3">
-                {questions[currentQuestion].options.map((option: string, index: number) => {
-                  const isSelected = selectedAnswer === index;
-                  return (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className={`p-4 h-auto text-left justify-start transition-colors ${isSelected ? 'bg-primary/20 border-primary' : 'hover:bg-primary/10'}`}
-                      onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswerQuestion(index); }}
-                      disabled={selectedAnswer !== null && selectedAnswer !== index}
-                    >
-                      <span className={`w-8 h-8 rounded-full flex items-center justify-center mr-3 text-sm font-bold ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-primary/20'}`}>
-                        {String.fromCharCode(65 + index)}
-                      </span>
-                      {option}
-                    </Button>
-                  );
-                })}
-              </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {questions[currentQuestion].options.map((option: string, index: number) => {
+                    const isSelected = selectedAnswer === index;
+                    return (
+                      <Button
+                        key={index}
+                        variant="outline"
+                        className={`p-6 h-auto text-left justify-start transition-all duration-200 ${isSelected
+                            ? 'bg-primary/20 border-primary shadow-glow-primary scale-[1.02]'
+                            : 'hover:bg-primary/10 hover:border-primary/50 hover:scale-[1.01]'
+                          }`}
+                        onClick={(e) => { (e.currentTarget as HTMLButtonElement).blur(); handleAnswerQuestion(index); }}
+                        disabled={selectedAnswer !== null && selectedAnswer !== index}
+                      >
+                        <span className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mr-4 text-sm font-bold transition-colors ${isSelected ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
+                          }`}>
+                          {String.fromCharCode(65 + index)}
+                        </span>
+                        <span className="text-lg">{option}</span>
+                      </Button>
+                    );
+                  })}
+                </div>
 
-              <div className="text-center text-sm text-muted-foreground">
-                <p>Respuestas correctas: {answers.filter(a => a).length} de {answers.length}</p>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                <div className="text-center text-sm text-muted-foreground mt-4">
+                  <p>Respuestas correctas: {answers.filter(a => a).length} de {answers.length}</p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {onBack && (
-            <Button variant="outline" size="icon" onClick={onBack} className="mr-2"><ArrowLeft className="w-4 h-4" /></Button>
-          )}
-          <Zap className="w-5 h-5 text-primary" />
-          Carrera de Palabras
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Controls */}
-        <div className="flex justify-center gap-4">
-          <Button
-            onClick={isPlaying ? handlePause : handlePlay}
-            className="bg-gradient-primary"
-          >
-            {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-            {isPlaying ? 'Pausar' : 'Reproducir'}
-          </Button>
-          
-          <Button variant="outline" onClick={handleGoBack} disabled={!canGoBack || currentIndex === 0}>
-            <RotateCcw className="w-4 h-4 mr-2" />
-            Retroceder
-          </Button>
-          
-          <Button variant="outline" onClick={handleRestart}>
-            Reiniciar
-          </Button>
-        </div>
+    <div className="min-h-screen bg-gradient-bg p-4 flex items-center justify-center">
+      <Card className="border-border/50 bg-card/80 backdrop-blur-sm w-full max-w-4xl">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {onBack && (
+              <Button variant="outline" size="icon" onClick={onBack} className="mr-2"><ArrowLeft className="w-4 h-4" /></Button>
+            )}
+            <Zap className="w-5 h-5 text-primary" />
+            Carrera de Palabras
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-8">
+          {/* Controls */}
+          <div className="flex flex-wrap justify-center gap-4">
+            <Button
+              onClick={isPlaying ? handlePause : handlePlay}
+              className="bg-gradient-primary min-w-[140px]"
+            >
+              {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+              {isPlaying ? 'Pausar' : 'Reproducir'}
+            </Button>
 
-        {/* Speed Control */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Velocidad: {wpm} WPM</label>
-          <input
-            type="range"
-            min={100}
-            max={500}
-            step={25}
-            value={wpm}
-            onChange={(e) => setWpm(Number(e.target.value))}
-            className="w-full"
-          />
-        </div>
+            <Button variant="outline" onClick={handleGoBack} disabled={!canGoBack || currentIndex === 0}>
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Retroceder
+            </Button>
 
-        {/* Stats */}
-        <div className="flex justify-center gap-4">
-          <Badge variant="outline">
-            <Target className="w-4 h-4 mr-1" />
-            {estimatedWPM} WPM
-          </Badge>
-          <Badge variant="outline">
-            <Zap className="w-4 h-4 mr-1" />
-            {currentIndex} / {words.length} palabras
-          </Badge>
-        </div>
-
-        {/* Progress */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>Progreso</span>
-            <span>{Math.round(progress)}%</span>
+            <Button variant="outline" onClick={handleRestart}>
+              Reiniciar
+            </Button>
           </div>
-          <Progress value={progress} className="h-2" />
-        </div>
 
-        {/* Reading Area */}
-        <div className="bg-muted/20 rounded-lg p-8 min-h-[200px] flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-3xl font-bold mb-4 min-h-[120px] flex items-center justify-center">
-              {getCurrentChunk() || 'Presiona Reproducir para comenzar'}
+          {/* Speed Control */}
+          <div className="space-y-2 max-w-md mx-auto">
+            <label className="text-sm font-medium flex justify-between">
+              <span>Velocidad</span>
+              <span className="font-bold text-primary">{wpm} WPM</span>
+            </label>
+            <input
+              type="range"
+              min={100}
+              max={500}
+              step={25}
+              value={wpm}
+              onChange={(e) => setWpm(Number(e.target.value))}
+              className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+            />
+          </div>
+
+          {/* Stats */}
+          <div className="flex justify-center gap-4">
+            <Badge variant="outline" className="px-3 py-1">
+              <Target className="w-4 h-4 mr-2 text-accent" />
+              {estimatedWPM} WPM (Est.)
+            </Badge>
+            <Badge variant="outline" className="px-3 py-1">
+              <Zap className="w-4 h-4 mr-2 text-primary" />
+              {currentIndex} / {words.length} palabras
+            </Badge>
+          </div>
+
+          {/* Progress */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Progreso</span>
+              <span>{Math.round(progress)}%</span>
             </div>
-            <div className="w-2 h-2 bg-primary rounded-full mx-auto animate-pulse"></div>
+            <Progress value={progress} className="h-2" />
           </div>
-        </div>
 
-        {/* Tips */}
-        <div className="text-center text-sm text-muted-foreground space-y-1">
-          <p>💡 Mantén los ojos fijos en el centro</p>
-          <p>🧠 No subvocalices (no "pronuncies" mentalmente)</p>
-          <p>⚡ Si pierdes comprensión, reduce la velocidad</p>
-        </div>
-      </CardContent>
-    </Card>
+          {/* Reading Area */}
+          <div className="bg-muted/30 rounded-xl p-12 min-h-[250px] flex items-center justify-center relative overflow-hidden border border-border/50">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-10">
+              <div className="w-full h-[1px] bg-foreground"></div>
+              <div className="h-full w-[1px] bg-foreground absolute"></div>
+            </div>
+
+            <div className="text-center z-10">
+              <div className="text-4xl md:text-5xl font-bold mb-8 min-h-[120px] flex items-center justify-center tracking-wide text-foreground">
+                {getCurrentChunk() || 'Presiona Reproducir'}
+              </div>
+              <div className="w-3 h-3 bg-primary rounded-full mx-auto animate-pulse shadow-glow-primary"></div>
+            </div>
+          </div>
+
+          {/* Tips */}
+          <div className="text-center text-sm text-muted-foreground space-y-1 bg-muted/20 p-4 rounded-lg">
+            <p>💡 Mantén los ojos fijos en el punto central</p>
+            <p>🧠 Evita "pronunciar" las palabras mentalmente</p>
+            <p>⚡ Ajusta la velocidad si pierdes el hilo</p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

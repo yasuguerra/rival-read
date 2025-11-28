@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { createOrUpdateGoal, getActiveGoal } from '@/services/firestore/goals';
 
 interface SettingsModalProps {
   open: boolean;
@@ -14,13 +14,14 @@ interface SettingsModalProps {
   onUpdated?: () => void;
 }
 
-// This component consolidates early user preferences. Future: move to dedicated 'user_preferences' table
 export function SettingsModal({ open, onOpenChange, userId, onUpdated }: SettingsModalProps) {
   const [loading, setLoading] = useState(false);
+  const [dailyMinutes, setDailyMinutes] = useState(10);
+  const [focusSpeed, setFocusSpeed] = useState(true);
+  const [focusComprehension, setFocusComprehension] = useState(true);
   const [targetWPM, setTargetWPM] = useState(250);
-  const [darkMode, setDarkMode] = useState(true); // placeholder: integrate theme system later
-  const [soundEnabled, setSoundEnabled] = useState(true); // for future feedback SFX
-  const [adaptiveEnabled, setAdaptiveEnabled] = useState(true); // toggle for forthcoming adaptive engine
+  const [darkMode, setDarkMode] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   useEffect(() => {
     if (open && userId) {
@@ -32,25 +33,14 @@ export function SettingsModal({ open, onOpenChange, userId, onUpdated }: Setting
   const load = async () => {
     try {
       setLoading(true);
-      // Load preferences table if exists (defensive)
-      // Attempt to load preferences table dynamically; if not present, ignore
-      try {
-        const { data: prefs, error } = await (supabase as any)
-          .from('user_preferences')
-          .select('*')
-          .eq('user_id', userId)
-          .single();
-        if (!error && prefs) {
-          if (prefs.target_wpm) setTargetWPM(prefs.target_wpm);
-          if (typeof prefs.dark_mode === 'boolean') setDarkMode(prefs.dark_mode);
-          if (typeof prefs.sound_enabled === 'boolean') setSoundEnabled(prefs.sound_enabled);
-          if (typeof prefs.adaptive_enabled === 'boolean') setAdaptiveEnabled(prefs.adaptive_enabled);
-        }
-      } catch (_) {
-        // table not ready yet
+      const activeGoal = await getActiveGoal(userId);
+      if (activeGoal) {
+        setDailyMinutes(activeGoal.dailyMinutes);
+        setFocusSpeed(activeGoal.focusAreas.includes('speed'));
+        setFocusComprehension(activeGoal.focusAreas.includes('comprehension'));
       }
     } catch (e) {
-      console.warn('No se pudieron cargar preferencias aún.', e);
+      console.warn('Could not load preferences', e);
     } finally {
       setLoading(false);
     }
@@ -61,26 +51,18 @@ export function SettingsModal({ open, onOpenChange, userId, onUpdated }: Setting
     try {
       setLoading(true);
 
-      // Upsert preferences (create table if not yet in migrations plan)
-      try {
-        const { error: upsertErr } = await (supabase as any)
-          .from('user_preferences')
-          .upsert({
-            user_id: userId,
-            target_wpm: targetWPM,
-            dark_mode: darkMode,
-            sound_enabled: soundEnabled,
-            adaptive_enabled: adaptiveEnabled,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-        if (upsertErr && upsertErr.code === '42P01') {
-          toast({ title: 'Tabla faltante', description: 'Crear user_preferences en migración.', variant: 'destructive' as any });
-        }
-      } catch (_) {
-        // ignore if table missing
-      }
+      // Build focus areas array
+      const focusAreas: ('speed' | 'comprehension')[] = [];
+      if (focusSpeed) focusAreas.push('speed');
+      if (focusComprehension) focusAreas.push('comprehension');
 
-      toast({ title: 'Preferencias guardadas' });
+      // Create or update goal in Firestore
+      await createOrUpdateGoal(userId, {
+        dailyMinutes,
+        focusAreas: focusAreas.length > 0 ? focusAreas : ['speed', 'comprehension'], // Default to both
+      });
+
+      toast({ title: 'Preferencias guardadas exitosamente' });
       onUpdated?.();
       onOpenChange(false);
     } catch (e) {
@@ -95,33 +77,59 @@ export function SettingsModal({ open, onOpenChange, userId, onUpdated }: Setting
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Configuración</DialogTitle>
-          <DialogDescription>Preferencias personales (la meta diaria se define en Entrenar Ahora).</DialogDescription>
+          <DialogDescription>Establece tu meta diaria y preferencias de entrenamiento.</DialogDescription>
         </DialogHeader>
         <div className="space-y-6 py-2">
           <div className="grid gap-2">
-            <Label>Objetivo WPM</Label>
-            <Input type="number" min={100} max={1200} value={targetWPM} onChange={e => setTargetWPM(parseInt(e.target.value) || 0)} />
+            <Label>Meta Diaria (minutos)</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2"
+              value={dailyMinutes}
+              onChange={e => setDailyMinutes(parseInt(e.target.value))}
+            >
+              <option value={5}>5 minutos</option>
+              <option value={10}>10 minutos</option>
+              <option value={15}>15 minutos</option>
+              <option value={30}>30 minutos</option>
+              <option value={45}>45 minutos</option>
+              <option value={60}>60 minutos</option>
+            </select>
           </div>
-          <div className="flex items-center justify-between">
+
+          <div>
+            <Label className="mb-2 block">Enfoque de Entrenamiento</Label>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Switch checked={focusSpeed} onCheckedChange={setFocusSpeed} />
+                <Label className="cursor-pointer">Velocidad de lectura</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch checked={focusComprehension} onCheckedChange={setFocusComprehension} />
+                <Label className="cursor-pointer">Comprensión lectora</Label>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Objetivo WPM (futuro)</Label>
+            <Input type="number" min={100} max={1200} value={targetWPM} onChange={e => setTargetWPM(parseInt(e.target.value) || 0)} disabled />
+            <p className="text-xs text-muted-foreground">Próximamente: personalización avanzada</p>
+          </div>
+
+          <div className="flex items-center justify-between opacity-50">
             <div>
               <Label className="cursor-pointer">Modo oscuro</Label>
-              <p className="text-xs text-muted-foreground">(Placeholder - integrará con theme)</p>
+              <p className="text-xs text-muted-foreground">(Próximamente)</p>
             </div>
-            <Switch checked={darkMode} onCheckedChange={setDarkMode} />
+            <Switch checked={darkMode} onCheckedChange={setDarkMode} disabled />
           </div>
-          <div className="flex items-center justify-between">
+
+          <div className="flex items-center justify-between opacity-50">
             <div>
               <Label className="cursor-pointer">Sonidos</Label>
-              <p className="text-xs text-muted-foreground">Feedback en minijuegos</p>
+              <p className="text-xs text-muted-foreground">(Próximamente)</p>
             </div>
-            <Switch checked={soundEnabled} onCheckedChange={setSoundEnabled} />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="cursor-pointer">Adaptatividad</Label>
-              <p className="text-xs text-muted-foreground">Ajuste dinámico de dificultad (próximo)</p>
-            </div>
-            <Switch checked={adaptiveEnabled} onCheckedChange={setAdaptiveEnabled} />
+            <Switch checked={soundEnabled} onCheckedChange={setSoundEnabled} disabled />
           </div>
         </div>
         <DialogFooter>
